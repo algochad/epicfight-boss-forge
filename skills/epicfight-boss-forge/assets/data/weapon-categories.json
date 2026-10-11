@@ -203,8 +203,14 @@
         "leaf",
         "trident",
         "hooked",
-        "broad"
-      ]
+        "broad",
+        "crystal_staff",
+        "orb_staff"
+      ],
+      "resolutions": {
+        "crystal_staff": [64, 32],
+        "orb_staff": [64, 32]
+      }
     }
   }
 }

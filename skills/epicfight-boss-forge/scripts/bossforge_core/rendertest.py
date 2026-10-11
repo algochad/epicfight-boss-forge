@@ -150,6 +150,11 @@ def run(project, boss_id: Optional[str] = None, out_dir=None, timeout: int = 900
         if counts and min(counts) == 0:
             problems.append("the boss entity was missing from the client at %d of %d screenshots (it was not summoned, not tracked or died)"
                             % (sum(1 for c in counts if c == 0), len(counts)))
+        held = re.findall(r"^RT_HELD view=\d+ item=(\S+)", text, re.M)
+        want = ("%s:%s" % (mod_id, n["main_weapon"])) if n.get("main_weapon") else None
+        if want and held and any(h != want for h in held):
+            problems.append("the boss is not holding its main weapon %s (main hand: %s): the weapon item is not registered or finalizeSpawn did not equip it"
+                            % (want, held[-1]))
         if timed_out:
             problems.append("timed out after %ds" % timeout)
         if seen is None:
@@ -166,7 +171,7 @@ def run(project, boss_id: Optional[str] = None, out_dir=None, timeout: int = 900
         tail = "\n".join(text.splitlines()[-40:])
         result = {"ok": not problems, "boss": boss_id, "screenshots": saved, "mesh_positions_seen": seen,
                   "mesh_positions_expected": expected, "seconds": round(time.time() - started),
-                  "entity_counts": counts, "problems": problems,
+                  "entity_counts": counts, "held_items": held, "problems": problems,
                   "next": ["READ every screenshot and judge it against the boss description before approving",
                            "if `problems` is non-empty fix the cause; see references/render-pipeline.md (symptom table)"]}
         if problems:

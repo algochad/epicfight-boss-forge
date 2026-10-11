@@ -1,13 +1,14 @@
 import _path  # noqa
 import copy
 import math
+import re
 import unittest
 
 from bossforge_core import presets, shape, spec
 from bossforge_core.spec import BossForgeError
 
 REQUIRED = ("crown horns helm hood mane pauldrons cape skirt tail wings halo orbs extra_arms claws tusks fangs "
-            "ribcage core spine_spikes shield gauntlets greaves belt banner jaw").split()
+            "ribcage core spine_spikes shield gauntlets greaves belt banner jaw hairdo ribbons pouch").split()
 STYLES = {
     "crown": ("band", "spiked", "tall", "broken"),
     "horns": ("curved", "straight", "ram", "antlers", "demon", "bull"),
@@ -15,13 +16,15 @@ STYLES = {
     "pauldrons": ("round", "spiked", "layered", "skull", "asymmetric"),
     "cape": ("short", "long", "tattered"),
     "tail": ("lizard", "spiked", "whip", "club"),
-    "wings": ("bat", "feathered", "angel", "skeletal", "flame"),
+    "wings": ("bat", "feathered", "angel", "seraph", "skeletal", "flame"),
     "shield": ("round", "kite", "tower"),
+    "hairdo": ("bun", "twin_buns", "ponytail", "braid"),
+    "ribbons": ("wrist", "hem", "back", "all"),
 }
 SILHOUETTES = ("plain knight warlord brute colossus caster beast fiend skeletal_king wraith insectoid").split()
 # variants that are asymmetric about x = 0 on purpose
 ASYMMETRIC = {("pauldrons", "style", "asymmetric"), ("shield", None, None), ("crown", "style", "broken"),
-              ("belt", "style", "sash"), ("banner", "style", "pennant"), ("cape", "style", "tattered")}
+              ("belt", "style", "sash"), ("banner", "style", "pennant"), ("cape", "style", "tattered"), ("pouch", None, None)}
 PALETTE = set(spec.PALETTE_KEYS)
 BONES = set(shape.BONES)
 
@@ -71,6 +74,10 @@ def variants(name):
             vals = p["allowed"]
         elif p["type"] == "bool":
             vals = [True, False]
+        elif p["type"] == "color":
+            vals = ["#123456"]
+        elif p["type"] == "colors":
+            vals = [["#123456"]]
         else:
             vals = list(p["range"])
         for v in vals:
@@ -170,7 +177,7 @@ class ExpansionTest(unittest.TestCase):
     def test_symmetric_presets_mirror_about_x0(self):
         checked = 0
         for name, att, key, val in all_variants():
-            if (name, key, val) in ASYMMETRIC or (name, None, None) in ASYMMETRIC:
+            if (name, key, tuple(val) if isinstance(val, list) else val) in ASYMMETRIC or (name, None, None) in ASYMMETRIC:
                 continue
             checked += 1
             self.assertLess(mirror_gap(expand(att)), 2e-3, "%s %s=%s is not symmetric" % (name, key, val))
@@ -200,6 +207,7 @@ class ExpansionTest(unittest.TestCase):
             "orbs": {"chest"}, "extra_arms": {"chest"}, "claws": {"hand_r"}, "ribcage": {"chest"}, "core": {"chest"},
             "spine_spikes": {"chest", "torso"}, "shield": {"forearm_l"}, "gauntlets": {"forearm_r", "hand_r"},
             "greaves": {"shin_r"}, "belt": {"torso", "thigh_r"}, "banner": {"chest", "torso"},
+            "hairdo": {"head"}, "ribbons": {"hand_r", "shin_r", "head"}, "pouch": {"torso"},
         }
         self.assertEqual(set(REQUIRED), set(expected))
         for name, bones in expected.items():
@@ -436,7 +444,7 @@ class SilhouetteTest(unittest.TestCase):
         for name in presets.list_silhouettes():
             self.assertEqual([], shape.validate_shape({"silhouette": name}), name)
             boxes, applied = shape.resolve({"silhouette": name})
-            self.assertLessEqual(len(boxes), 160, name)
+            self.assertLessEqual(len(boxes), shape.MAX_BOXES, name)
             model = shape.build_model({"shape": {"silhouette": name}, "mod_id": "m", "id": "boss"})
             self.assertLessEqual(max(model.atlas), 512, name)
             self.assertGreater(model.height, 1.8, name)
@@ -512,6 +520,712 @@ class SilhouetteTest(unittest.TestCase):
         swapped, _ = shape.resolve({"silhouette": "fiend", "attachments": [{"id": "wings", "preset": "wings", "style": "flame"}]})
         self.assertTrue(any(b["id"].startswith("wings_fl") for b in swapped))
         self.assertFalse(any(b["id"].startswith("wings_m") for b in swapped))
+
+
+def luminance(color):
+    r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def convex_hull(points):
+    pts = sorted(set(points))
+    if len(pts) < 3:
+        return pts
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower, upper = [], []
+    for p in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    for p in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
+
+
+def front_cells(boxes, step=0.02):
+    """Grid cells (ix, iy) covered by the front-view silhouette (x, y) of the given boxes (mirror copies included)."""
+    cells = set()
+    for b in explicit(boxes):
+        hull = convex_hull([(c[0], c[1]) for c in shape.box_corners(b)])
+        xs, ys = [p[0] for p in hull], [p[1] for p in hull]
+        for ix in range(int(min(xs) / step), int(max(xs) / step) + 2):
+            for iy in range(int(min(ys) / step), int(max(ys) / step) + 2):
+                x, y = ix * step, iy * step
+                if all((hull[(i + 1) % len(hull)][0] - hull[i][0]) * (y - hull[i][1])
+                       - (hull[(i + 1) % len(hull)][1] - hull[i][1]) * (x - hull[i][0]) >= -1e-9 for i in range(len(hull))):
+                    cells.add((ix, iy))
+    return cells
+
+
+def face_hits(boxes, proportions=None):
+    """Ids of boxes whose bounding box enters the open face: between the eyes/brow span, below the bangs line, in
+    front of the face plane."""
+    body = presets.body_from(proportions or props())
+    he = body.he
+    zf = body.hcz - he / 2.0
+    hits = []
+    for b in explicit(boxes):
+        pts = shape.box_corners(b)
+        lo = [min(c[i] for c in pts) for i in range(3)]
+        hi = [max(c[i] for c in pts) for i in range(3)]
+        if (lo[0] < 0.38 * he and hi[0] > -0.38 * he and lo[1] < body.head_top - 0.3 * he and hi[1] > body.head_bot
+                and lo[2] < zf + 0.005):
+            hits.append(b["id"])
+    return hits
+
+
+class SeraphWingsTest(unittest.TestCase):
+    ATT = {"id": "w", "preset": "wings", "style": "seraph", "spread": 15.0}
+
+    def test_rises_well_above_the_head_and_hangs_to_hip_or_knee_height(self):
+        body = presets.body_from(None)
+        e = extent(expand(self.ATT))
+        self.assertGreaterEqual(e[1][1], body.head_top + 0.4)
+        self.assertLess(e[1][0], body.hip)  # the long tips hang below the hip joint
+        self.assertGreater(e[1][0], 0.2)    # but stay off the floor
+
+    def test_materials_feathers_use_vane_material_and_an_override_reaches_all(self):
+        boxes = expand(self.ATT)
+        self.assertEqual({"silk_feather"}, {b["material"] for b in boxes if b["id"].startswith("w_f")})
+        self.assertEqual({"silk"}, {b["material"] for b in boxes if b["id"].startswith("w_st")})
+        self.assertEqual({"leather"}, {b["material"] for b in expand(dict(self.ATT, material="leather"))})
+
+    def test_leading_edge_is_a_stack_of_thick_blocks_not_a_rod(self):
+        stairs = [b for b in expand(self.ATT) if b["id"].startswith("w_st")]
+        self.assertGreaterEqual(len(stairs), 6)
+        for b in stairs:
+            self.assertGreaterEqual(min(b["size"][0], b["size"][1]), 0.14)
+            self.assertNotIn("rotate", b)  # axis-aligned blocks give the stepped silhouette
+        xs = [b["min"][0] for b in stairs]
+        ys = [b["min"][1] for b in stairs]
+        self.assertEqual(sorted(xs), xs)  # every step climbs up and out
+        self.assertEqual(sorted(ys), ys)
+
+    def test_sail_has_many_rows_and_a_reasonable_box_count(self):
+        boxes = expand(self.ATT)
+        rows = {b["id"].split("_")[1] for b in boxes if b["id"].startswith("w_f")}
+        self.assertGreaterEqual(len(rows), 5)
+        self.assertLessEqual(len(explicit(boxes)), 110)
+
+    def test_sail_is_solid_from_front_and_back_for_usual_spreads(self):
+        for spread in (10.0, 15.0, 25.0, 30.0, 35.0, 45.0):
+            att = dict(self.ATT, spread=spread)
+            feathers = [b for b in expand(att) if b["id"].startswith("w_f") and b["id"].endswith("_r")]
+            rows = {}
+            for ix, iy in front_cells(feathers):
+                if ix >= 0:  # the right wing only: the two wings leave a gap behind the spine
+                    rows.setdefault(iy, []).append(ix)
+            low = min(rows)
+            for iy in range(low + 24, max(rows) + 1):  # above the jagged lower edge (0.48 blocks)
+                xs = sorted(rows.get(iy, ()))
+                self.assertTrue(xs, "row %d empty at spread %s" % (iy, spread))
+                gaps = [(a * 0.02, b * 0.02) for a, b in zip(xs, xs[1:]) if b - a > 1]
+                self.assertEqual([], gaps, "holes in the sail at y=%.2f spread %s" % (iy * 0.02, spread))
+
+    def test_rows_are_layered_in_depth_and_the_middle_row_is_longest(self):
+        rows = {}
+        for b in expand(self.ATT):
+            if b["id"].startswith("w_f") and b["id"].endswith("_r"):
+                rows.setdefault(int(b["id"].split("_")[1][1:]), []).append(b)
+        self.assertGreaterEqual(len(rows), 5)
+        mean_z = {k: sum(b["min"][2] for b in rows[k]) / len(rows[k]) for k in rows}
+        for parity in (0, 1):  # odd rows are shifted along the strut by half a feather, so compare like with like
+            ks = sorted(k for k in rows if k % 2 == parity)
+            self.assertEqual(sorted(mean_z[k] for k in ks), [mean_z[k] for k in ks])  # front row nearest, back row farthest
+        self.assertLess(mean_z[min(rows)] + 0.08, mean_z[max(rows)])
+        mean_len = {k: sum(b["size"][1] for b in rows[k]) / len(rows[k]) for k in rows}
+        mid = max(mean_len, key=mean_len.get)
+        self.assertEqual(mid, (max(rows) + min(rows)) // 2)
+        self.assertLess(mean_len[min(rows)], mean_len[mid] * 0.8)
+        self.assertAlmostEqual(mean_len[min(rows)], mean_len[max(rows)], delta=0.1)
+
+    def test_colors_run_white_to_lilac_to_tip_from_both_sides(self):
+        att = dict(self.ATT, color="#ffffff", accent="#c0b0ff", tip="#6040c0")
+        row_color = {}
+        for b in expand(att):
+            if b["id"].startswith("w_f") and b["id"].endswith("_r"):
+                row_color.setdefault(int(b["id"].split("_")[1][1:]), []).append(b["color"])
+        n = max(row_color)
+        mean = {k: sum(luminance(c) for c in v) / len(v) for k, v in row_color.items()}
+        for k in range(n // 2):  # darker towards the middle row, mirrored on the back half
+            self.assertGreater(mean[k], mean[k + 1], k)
+            self.assertAlmostEqual(mean[k], mean[n - k], delta=1.0, msg=k)
+        self.assertEqual("#ffffff", min(row_color[0], key=lambda c: -luminance(c)))  # outer rows start at the `color`
+        stairs = {b["color"] for b in expand(att) if b["id"].startswith("w_st")}
+        self.assertEqual({"#ffffff"}, stairs)
+
+    def test_wings_fan_out_broadly_at_the_documented_spread(self):
+        body = presets.body_from(props())
+        att = dict(self.ATT, spread=30.0)
+        e = extent(expand(att))
+        self.assertGreaterEqual(e[0][1], 1.25)   # each wing reaches 1.25-1.6 blocks out from the centre line
+        self.assertLessEqual(e[0][1], 1.6)
+        self.assertGreaterEqual(e[1][1], body.head_top + 0.3)
+        # the leading edge sweeps outwards, and the lowest feather tips end further out than the top of the edge
+        stairs = [b for b in expand(att) if b["id"].startswith("w_st")]
+        top_x = max(b["min"][0] + b["size"][0] for b in stairs)
+        feathers = [b for b in expand(att) if b["id"].startswith("w_f") and b["id"].endswith("_r")]
+        low = min(min(c[1] for c in shape.box_corners(b)) for b in explicit(feathers))
+        out = max(max(c[0] for c in shape.box_corners(b)) for b in explicit(feathers))
+        self.assertGreater(out, top_x + 0.3)   # the feathers fan out beyond the top of the leading edge
+        self.assertLess(low, body.hip)
+        narrow = extent(expand(dict(self.ATT, spread=15.0)))[0][1]
+        self.assertGreater(e[0][1], narrow + 0.3)
+
+    def test_colour_runs_smoothly_down_the_rows(self):
+        att = dict(self.ATT, color="#ffffff", accent="#e0d8ff")
+        rows = {}
+        for b in expand(att):
+            if b["id"].startswith("w_f") and b["id"].endswith("_r"):
+                rows.setdefault(int(b["id"].split("_")[1][1:]), []).append(luminance(b["color"]))
+        mean = [sum(rows[k]) / len(rows[k]) for k in sorted(rows)]
+        half = mean[:len(mean) // 2 + 1]
+        steps = [a - b for a, b in zip(half, half[1:])]
+        self.assertTrue(all(st > 0 for st in steps), steps)  # lighter at the top, darker towards the longest row
+        self.assertLess(max(steps), 0.5 * (half[0] - half[-1]))  # no abrupt jump between neighbouring rows
+        self.assertGreater(half[-1], 120)  # soft lilac tips, not saturated purple
+
+    def test_tip_defaults_to_a_darker_violet_of_the_accent(self):
+        def tip_of(att):
+            rows = {}
+            for b in expand(att):
+                if b["id"].startswith("w_f") and b["id"].endswith("_r"):
+                    rows.setdefault(int(b["id"].split("_")[1][1:]), []).append(luminance(b["color"]))
+            return min(sum(v) / len(v) for v in rows.values())
+
+        pale = tip_of(dict(self.ATT, accent="#e0d8ff"))
+        dark = tip_of(dict(self.ATT, accent="#a090ff"))
+        self.assertLess(dark, pale)  # the tip follows the accent
+        explicit_tip = tip_of(dict(self.ATT, accent="#e0d8ff", tip="#101030"))
+        self.assertLess(explicit_tip, pale - 40)
+
+    def test_palette_key_colors_are_accepted(self):
+        boxes = expand(dict(self.ATT, color="primary", accent="secondary", tip="accent"))
+        for b in boxes:
+            self.assertTrue(b["color"] in PALETTE or b["color"].startswith("#"), b["id"])
+
+    def test_stays_inside_the_model_limits_at_every_spread_and_scale(self):
+        for spread in (10.0, 30.0, 80.0):
+            for scale in (0.5, 1.0, 2.0):
+                boxes, _ = shape.resolve({"attachments": [dict(self.ATT, spread=spread, scale=scale)]})
+                self.assertLessEqual(len(boxes), shape.MAX_BOXES)
+        shape.resolve({"attachments": [dict(self.ATT, spread=30.0, scale=2.5)]})
+        with self.assertRaises(BossForgeError) as cm:  # a 10-block span does not fit the model limits: a clear error
+            shape.resolve({"attachments": [dict(self.ATT, spread=80.0, scale=2.5)]})
+        self.assertEqual("out_of_bounds", cm.exception.err.code)
+
+    def test_spread_opens_the_wings(self):
+        narrow = extent(expand(dict(self.ATT, spread=10.0)))
+        wide = extent(expand(dict(self.ATT, spread=45.0)))
+        self.assertGreater(wide[0][1], narrow[0][1] + 0.2)
+        self.assertLess(wide[1][1], narrow[1][1] - 0.2)
+
+
+class HairdoTest(unittest.TestCase):
+    ALL = {"id": "h", "preset": "hairdo", "ribbon_loops": True, "pins": True}
+
+    def test_the_face_stays_open_for_every_style_and_head_size(self):
+        for style in STYLES["hairdo"]:
+            for head in (0.6, 1.0, 1.6, 2.2):
+                p = props(head=head)
+                self.assertEqual([], face_hits(expand(dict(self.ALL, style=style), p), p), "%s head=%s" % (style, head))
+        sil = presets.silhouette("caster")["proportions"]
+        self.assertEqual([], face_hits(expand(self.ALL, props(**sil)), props(**sil)))
+
+    def test_hair_is_in_the_hair_colour_and_the_ribbons_are_white_blue(self):
+        boxes = expand(self.ALL)
+        main = [b for b in boxes if b["id"] in ("h_top", "h_back", "h_side_r")]
+        self.assertEqual(3, len(main))
+        for b in main:
+            self.assertEqual(("hair", "hair"), (b["color"], b["material"].replace("hair_soft", "hair")))
+        loops = [b for b in boxes if b["id"].startswith("h_loop_")]
+        self.assertEqual({"#f4f8ff", "#9cc2ff"}, {b["color"] for b in loops})
+        recolored = [b for b in expand(dict(self.ALL, accent="#ff0000")) if b["id"].startswith("h_loop_")]
+        self.assertIn("#ff0000", {b["color"] for b in recolored})
+
+    def test_side_locks_frame_the_face_down_to_the_chest(self):
+        body = presets.body_from(props())
+        locks = [b for b in explicit(expand(self.ALL)) if b["id"].startswith("h_lk")]
+        self.assertEqual(6, len(locks))
+        lo = min(c[1] for b in locks for c in shape.box_corners(b))
+        self.assertLess(lo, body.head_bot - 0.1)    # past the chin
+        self.assertGreater(lo, body.chest_bot)      # not below the chest
+        for b in locks:
+            self.assertGreaterEqual(min(abs(c[0]) for c in shape.box_corners(b)), body.he / 2.0 - 0.03)  # beside the face
+        off = expand(dict(self.ALL, locks=False, bangs=False))
+        self.assertFalse([b for b in off if b["id"].startswith(("h_lk", "h_bang"))])
+
+    def test_styles_put_the_hair_where_they_say(self):
+        body = presets.body_from(props())
+        for style in ("bun", "twin_buns"):
+            e = extent(expand(dict(self.ALL, style=style)))
+            self.assertGreater(e[1][1], body.head_top + 0.1, style)  # a bun sits above the head
+        buns = [b for b in expand(dict(self.ALL, style="twin_buns")) if b["id"].startswith("h_bn")]
+        self.assertTrue(buns and all(b["id"].endswith("_r") and b.get("mirror") for b in buns))
+        single = [b for b in expand(dict(self.ALL, style="bun")) if b["id"].startswith("h_bn")]
+        self.assertTrue(single and not any(b.get("mirror") for b in single))
+        self.assertGreater(min(b["min"][2] for b in single), body.hcz - 0.1)  # on the back half of the head
+        self.assertTrue({b["color"] for b in single} == {"hair"})            # the dark band is a material, not a color
+        self.assertIn("leather", {b["material"] for b in single})
+        for style in ("ponytail", "braid"):
+            e = extent(expand(dict(self.ALL, style=style)))
+            self.assertLess(e[1][0], body.head_bot - 0.3, style)             # hangs below the head
+            self.assertGreater(e[2][1], body.hcz + body.he / 2.0 + 0.2, style)  # behind it
+
+    def test_ribbon_loops_hang_behind_the_head_and_pins_sit_in_front_of_the_bangs(self):
+        body = presets.body_from(props())
+        zb = body.hcz + body.he / 2.0
+        zf = body.hcz - body.he / 2.0
+        loops = [b for b in explicit(expand(self.ALL)) if b["id"].startswith("h_loop_")]
+        self.assertEqual(8, len(loops))
+        self.assertTrue(all(min(c[2] for c in shape.box_corners(b)) > zb for b in loops))
+        pins = [b for b in expand(self.ALL) if b["id"].startswith(("h_leaf", "h_pin"))]
+        self.assertEqual({"#35c9b8", "#e6c050"}, {b["color"] for b in pins})
+        self.assertTrue(all(b["min"][2] < zf for b in pins))
+        plain = expand({"id": "h", "preset": "hairdo"})
+        self.assertFalse([b for b in plain if b["id"].startswith(("h_loop", "h_leaf", "h_pin"))])
+
+    def test_back_hair_is_a_narrow_curtain_not_a_wider_block(self):
+        body = presets.body_from(props())
+        boxes = explicit(expand(self.ALL))
+        curtain = [b for b in boxes if b["id"].startswith("h_cu")]
+        self.assertGreaterEqual(len(curtain), 2)
+        lo = min(c[1] for b in curtain for c in shape.box_corners(b))
+        self.assertLess(lo, body.head_bot - 0.1)      # hangs below the head, to the shoulder blades
+        self.assertGreater(lo, body.chest_bot)
+        for b in curtain:
+            xs = [c[0] for c in shape.box_corners(b)]
+            self.assertLessEqual(max(xs) - min(xs), body.he + 1e-6, b["id"])
+        # no hair box of the cap or the curtain sticks out more than a few cm beside the head
+        for b in boxes:
+            if b["id"].startswith(("h_top", "h_back", "h_cu", "h_side")):
+                self.assertLessEqual(max(abs(c[0]) for c in shape.box_corners(b)), body.he / 2.0 + 0.045, b["id"])
+        back = [b for b in boxes if b["id"] == "h_back"][0]
+        self.assertLess(max(c[1] for c in shape.box_corners(back)) - min(c[1] for c in shape.box_corners(back)), 0.7 * body.he)
+
+    def test_hair_follows_the_head_size(self):
+        for style in ("bun", "ponytail"):
+            a = extent(expand({"id": "h", "preset": "hairdo", "style": style}, props()))
+            b = extent(expand({"id": "h", "preset": "hairdo", "style": style}, props(head=1.6)))
+            self.assertGreater(b[0][1] - b[0][0], a[0][1] - a[0][0] + 0.15, style)
+            self.assertGreater(b[1][1], a[1][1] + 0.25, style)
+
+
+class RibbonsTest(unittest.TestCase):
+    def test_every_style_hangs_on_its_own_bones(self):
+        bones = {"wrist": {"hand_r"}, "hem": {"shin_r"}, "back": {"head"}, "all": {"hand_r", "shin_r", "head"}}
+        for style, want in bones.items():
+            got = {b["bone"] for b in expand({"id": "r", "preset": "ribbons", "style": style})}
+            self.assertEqual(want, got, style)
+
+    def test_ribbons_are_thin_tilted_multi_segment_strips_in_two_tones(self):
+        boxes = expand({"id": "r", "preset": "ribbons", "style": "all"})
+        chains = {}
+        for b in boxes:
+            chains.setdefault(b["id"].split("_")[1].rstrip("0123456789"), []).append(b)
+        self.assertEqual({"wa", "wb", "ha", "hb", "bk"}, set(chains))
+        for name, chain in chains.items():
+            self.assertGreaterEqual(len(chain), 2, name)
+            for b in chain:
+                self.assertIn("rotate", b, "%s must tilt so it drifts" % name)
+                self.assertLessEqual(b["size"][0], 0.12, name)
+                self.assertLessEqual(b["size"][2], 0.03, name)
+        self.assertEqual({"#f4f8ff", "#bcd6ff"}, {b["color"] for b in boxes})
+        recolored = expand({"id": "r", "preset": "ribbons", "color": "#112233", "accent": "#445566"})
+        self.assertEqual({"#112233", "#445566"}, {b["color"] for b in recolored})
+
+    def test_wrist_ribbons_fall_past_the_hem_and_flare_outwards(self):
+        body = presets.body_from(props())
+        e = extent(expand({"id": "r", "preset": "ribbons", "style": "wrist"}))
+        self.assertLess(e[1][0], 0.2)  # down to the boots
+        self.assertGreater(e[0][1], body.arm_cx + body.arm_t / 2.0 + 0.15)  # they flare out beyond the arms
+        self.assertGreater(e[2][1], 0.15)  # and trail backwards
+
+    def test_length_stretches_and_the_floor_is_never_crossed(self):
+        base = {"id": "r", "preset": "ribbons", "style": "all"}
+        short = extent(expand(dict(base, length=0.5)))
+        long_ = extent(expand(dict(base, length=2.0)))
+        self.assertGreater(long_[2][1] - long_[2][0], short[2][1] - short[2][0] + 0.3)  # the excess trails on the floor
+        for length in (0.5, 1.0, 2.0):
+            for scale in (0.5, 1.0, 2.5):
+                e = extent(expand(dict(base, length=length, scale=scale)))
+                self.assertGreaterEqual(e[1][0], 0.0, "length %s scale %s" % (length, scale))
+
+    def test_ribbons_do_not_enter_the_face(self):
+        for style in ("wrist", "hem", "back", "all"):
+            self.assertEqual([], face_hits(expand({"id": "r", "preset": "ribbons", "style": style})), style)
+
+
+class SkirtSlitAndHemTest(unittest.TestCase):
+    def sel(self, boxes, regex):
+        return [b for b in explicit(boxes) if re.match(regex, b["id"])]
+
+    @staticmethod
+    def x_range(b):
+        xs = [c[0] for c in shape.box_corners(b)]
+        return min(xs), max(xs)
+
+    @staticmethod
+    def y_range(b):
+        ys = [c[1] for c in shape.box_corners(b)]
+        return min(ys), max(ys)
+
+    def test_slits_flank_a_centre_panel_and_open_over_the_legs(self):
+        body = presets.body_from(props())
+        opened = expand({"id": "s", "preset": "skirt", "style": "robe", "slit": True, "scale": 0.65})
+        closed = expand({"id": "s", "preset": "skirt", "style": "robe", "scale": 0.65})
+        self.assertFalse(self.sel(closed, r"s_fp"))
+        panel = self.sel(opened, r"s_fp\d")
+        self.assertTrue(panel)
+        self.assertTrue(all(b["id"].endswith(("_r", "_l")) for b in panel))  # one half per leg, so the legs stay free
+        outer = [b for b in self.sel(opened, r"s_fr\d") if self.x_range(b)[1] > 0]  # right front panels, top to bottom
+        outer.sort(key=lambda b: -self.y_range(b)[1])
+        self.assertGreaterEqual(len(outer), 2)
+        top_inner = min(abs(c[0]) for c in shape.box_corners(outer[0]))
+        low_inner = min(abs(c[0]) for c in shape.box_corners(outer[-1]))
+        self.assertLess(top_inner, 0.02)  # closed above the slit
+        panel_edge = max(self.x_range(b)[1] for b in panel if self.x_range(b)[1] > 0)
+        self.assertGreater(low_inner, panel_edge + 0.03)  # a real gap between the centre panel and the outer panel
+        leg_lo, leg_hi = body.leg_cx - body.leg_t / 2.0, body.leg_cx + body.leg_t / 2.0
+        self.assertTrue(leg_lo < low_inner and panel_edge < leg_hi)  # the gap sits over the leg, which shows lit
+        # the trim and the hem layer run across the whole width: the panels meet at the hem
+        trim = [b for b in self.sel(opened, r"s_frt") if self.x_range(b)[1] > 0][0]
+        self.assertLess(self.x_range(trim)[0], 0.02)
+        self.assertGreater(self.x_range(trim)[1], low_inner + 0.1)
+        # the centre panel stands proud of the front panel, ends above the trim, and the back stays closed
+        fr = [b for b in self.sel(opened, r"s_fr\d") if self.x_range(b)[1] > 0][0]
+        self.assertGreater(panel[0]["size"][2], fr["size"][2])
+        lowest_panel = min(self.y_range(b)[0] for b in panel)
+        self.assertGreater(lowest_panel, min(self.y_range(b)[0] for b in self.sel(opened, r"s_frt")) + 0.05)
+        self.assertTrue(all(min(abs(c[0]) for c in shape.box_corners(b)) < 0.02 for b in self.sel(opened, r"s_bk\d")))
+        self.assertEqual({"thigh_r", "shin_r", "root"}, {b["bone"] for b in opened})
+
+    def test_panel_alone_adds_the_centre_panel_without_opening_the_front(self):
+        boxes = expand({"id": "s", "preset": "skirt", "style": "robe", "panel": True})
+        self.assertTrue(self.sel(boxes, r"s_fp\d"))
+        for b in self.sel(boxes, r"s_fr\d"):
+            self.assertLess(min(abs(c[0]) for c in shape.box_corners(b)), 0.02)
+        self.assertEqual({"#f2ead3"}, {b["color"] for b in boxes if b["id"].startswith("s_fp")})
+
+    def test_hem_layer_is_lighter_smooth_and_hangs_below_the_normal_hem(self):
+        plain = expand({"id": "s", "preset": "skirt", "style": "robe", "scale": 0.65})
+        layered = expand({"id": "s", "preset": "skirt", "style": "robe", "scale": 0.65, "hem": True})
+        extra = [b for b in layered if b["id"] not in {p["id"] for p in plain}]
+        self.assertTrue(extra)
+        self.assertTrue(all(b["id"].startswith("s_h") for b in extra))
+        layer = [b for b in extra if re.match(r"s_h[fbs]\d", b["id"])]
+        edge = [b for b in extra if re.match(r"s_h[fbs]t", b["id"])]
+        self.assertTrue(layer and edge)
+        self.assertEqual({"#e8eefa"}, {b["color"] for b in layer})
+        self.assertEqual({"lace"}, {b["material"] for b in layer})  # a smooth frill material, never the checker-grained cloth
+        self.assertTrue(all(b["color"] == "accent" for b in edge))  # a thin trim closes the lower edge
+        recolored = expand({"id": "s", "preset": "skirt", "style": "robe", "scale": 0.65, "hem": True, "hem_color": "#102030"})
+        self.assertEqual({"#102030"}, {b["color"] for b in recolored if re.match(r"s_h[fbs]\d", b["id"])})
+        low = lambda boxes: min(c[1] for b in explicit(boxes) for c in shape.box_corners(b))
+        self.assertLess(low(layer), low(plain) - 0.04)
+        self.assertGreater(low(layer), 0.0)
+        self.assertLessEqual(len({b["bone"] for b in extra}), 1)
+        # the layer sticks out of the panels so the faces never coincide
+        panel = [b for b in plain if b["id"].startswith("s_fr0")][0]
+        under = [b for b in layer if b["id"].startswith("s_hf")][0]
+        self.assertGreater(under["size"][2], panel["size"][2])
+
+    def test_material_override_reaches_every_skirt_box(self):
+        for opts in ({}, {"slit": True, "hem": True}, {"panel": True, "hem": True, "style": "kilt"}):
+            boxes = expand(dict({"id": "s", "preset": "skirt", "material": "silk"}, **opts))
+            self.assertEqual({"silk"}, {b["material"] for b in boxes}, opts)
+        default = expand({"id": "s", "preset": "skirt", "style": "robe", "hem": True, "panel": True})
+        self.assertEqual({"cloth", "plate_gold", "lace"}, {b["material"] for b in default})  # trim stays gold without an override
+
+    def test_slit_and_hem_clear_the_body_for_every_style_and_silhouette(self):
+        for style in ("tabard", "robe", "kilt"):
+            for scale in (0.65, 1.0):
+                for p in ClearanceTest.prop_sets():
+                    att = {"id": "s", "preset": "skirt", "style": style, "slit": True, "hem": True, "scale": scale}
+                    ClearanceTest().assert_clear(att, p)
+
+    def test_default_skirt_is_unchanged_by_the_new_options(self):
+        a = expand({"id": "s", "preset": "skirt", "style": "robe"})
+        b = expand({"id": "s", "preset": "skirt", "style": "robe", "slit": False, "panel": False, "hem": False})
+        self.assertEqual(a, b)
+
+    def test_halves_meet_at_the_centre_without_a_seam(self):
+        for b in self.sel(expand({"id": "s", "preset": "skirt", "hem": True, "panel": True}), r"s_(fr|bk|fp|hf|hb)\d"):
+            if b["id"].endswith("_r"):
+                self.assertAlmostEqual(0.0, min(c[0] for c in shape.box_corners(b)), delta=0.004, msg=b["id"])
+
+
+class ArmClearTest(unittest.TestCase):
+    """The arms (sleeve, cuff, hand) must stay visible and unclipped next to the skirt and the pouch."""
+    NIGHT = None
+
+    @classmethod
+    def night(cls):
+        if cls.NIGHT is None:
+            cls.NIGHT = props(**dict(presets.silhouette("caster")["proportions"], head=1.0, shoulders=0.9, arm_thickness=0.75, leg_thickness=0.75))
+        return cls.NIGHT
+
+    @staticmethod
+    def hand_zone(proportions):
+        """(x0, x1, y0, y1) of the right fist and the lowest part of the forearm (cuff), seen from the front."""
+        bases = {b["id"]: b for b in shape.base_boxes(proportions)}
+        fist, low = bases["fist_r"], bases["arm_r_lower"]
+        return (min(fist["min"][0], low["min"][0]), max(fist["min"][0] + fist["size"][0], low["min"][0] + low["size"][0]),
+                fist["min"][1], low["min"][1] + 0.08)
+
+    def occluders(self, attachments, proportions):
+        x0, x1, y0, y1 = self.hand_zone(proportions)
+        hits = []
+        for att in attachments:
+            for b in explicit(expand(att, proportions)):
+                if b["bone"].endswith("_l") or b["bone"] in ("arm_r", "forearm_r", "hand_r"):
+                    continue
+                pts = shape.box_corners(b)
+                bx0, bx1 = min(c[0] for c in pts), max(c[0] for c in pts)
+                by0, by1 = min(c[1] for c in pts), max(c[1] for c in pts)
+                if bx1 > x0 + 0.004 and bx0 < x1 - 0.004 and by1 > y0 + 0.004 and by0 < y1 - 0.004:
+                    hits.append(b["id"])
+        return hits
+
+    def test_default_skirt_and_pouch_do_cover_the_hands_which_arm_clear_fixes(self):
+        night = self.night()
+        plain = [{"id": "skirt", "preset": "skirt", "style": "robe", "scale": 0.65, "slit": True, "hem": True},
+                 {"id": "pouch", "preset": "pouch"}]
+        self.assertTrue(self.occluders(plain, night))  # detector check: the old defaults really cover the hands
+        clear = [dict(a, arm_clear=True) for a in plain]
+        self.assertEqual([], self.occluders(clear, night))
+
+    def test_arm_clear_skirt_leaves_the_hands_free_for_every_style_and_silhouette(self):
+        for style in ("tabard", "robe", "kilt"):
+            for scale in (0.5, 0.65, 1.0, 1.5):
+                for opts in ({}, {"slit": True, "hem": True}, {"panel": True, "hem": True}):
+                    for p in ClearanceTest.prop_sets():
+                        att = dict({"id": "s", "preset": "skirt", "style": style, "scale": scale, "arm_clear": True}, **opts)
+                        self.assertEqual([], self.occluders([att], p), "%s %s %s" % (style, scale, opts))
+
+    def test_arm_clear_pouch_stays_between_the_centre_and_the_arm_for_both_sides(self):
+        for side in ("right", "left"):
+            for vials in (0, 1, 4):
+                for p in ClearanceTest.prop_sets():
+                    body = presets.body_from(p)
+                    boxes = explicit(expand({"id": "p", "preset": "pouch", "side": side, "vials": vials, "arm_clear": True}, p))
+                    for b in boxes:
+                        pts = shape.box_corners(b)
+                        self.assertLessEqual(max(abs(c[0]) for c in pts), body.arm_cx - body.arm_t / 2.0 - 0.002, "%s %s" % (side, b["id"]))
+        # the default pouch is unchanged by the new option
+        a = expand({"id": "p", "preset": "pouch"})
+        self.assertEqual(a, expand({"id": "p", "preset": "pouch", "arm_clear": False}))
+
+    def test_arm_clear_skirt_flares_only_below_the_hands_and_stays_clear_of_the_body(self):
+        night = self.night()
+        body = presets.body_from(night)
+        arm_inner = body.arm_cx - body.arm_t / 2.0
+        att = {"id": "s", "preset": "skirt", "style": "robe", "scale": 0.65, "slit": True, "hem": True, "arm_clear": True}
+        hands = body.fist_bot - 0.08
+        for b in explicit(expand(att, night)):
+            pts = shape.box_corners(b)
+            if min(c[1] for c in pts) >= hands - 1e-6:
+                self.assertLessEqual(max(abs(c[0]) for c in pts), arm_inner, b["id"])  # above the hands: inside the arms
+        top = [b for b in explicit(expand(att, night)) if b["id"].startswith(("s_fr0", "s_bk0"))]
+        wide = [b for b in explicit(expand(att, night)) if b["id"].startswith(("s_fr1", "s_bk1"))]
+        self.assertGreater(max(max(abs(c[0]) for c in shape.box_corners(b)) for b in wide), max(max(abs(c[0]) for c in shape.box_corners(b)) for b in top) + 0.12)
+        for style in ("tabard", "robe", "kilt"):
+            for scale in (0.65, 1.0):
+                for p in ClearanceTest.prop_sets():
+                    ClearanceTest().assert_clear({"id": "s", "preset": "skirt", "style": style, "slit": True, "hem": True, "scale": scale, "arm_clear": True}, p)
+
+    def test_arm_clear_skirt_keeps_the_ids_and_the_default_unchanged(self):
+        a = expand({"id": "s", "preset": "skirt", "slit": True, "hem": True, "scale": 0.65})
+        b = expand({"id": "s", "preset": "skirt", "slit": True, "hem": True, "scale": 0.65, "arm_clear": False})
+        self.assertEqual(a, b)
+        ids = {x["id"] for x in expand({"id": "s", "preset": "skirt", "slit": True, "hem": True, "scale": 0.65, "arm_clear": True})}
+        for want in ("s_fr0_0_r", "s_fr1_0_r", "s_fp0_0_r", "s_bk0_0_r", "s_frt_0_r", "s_band", "s_hf0_r", "s_hft0_r"):
+            self.assertIn(want, ids)
+
+    def test_every_arm_box_rides_the_arm_bones_and_presets_keep_off_them(self):
+        want = {"arm_r_upper": "arm_r", "arm_r_lower": "forearm_r", "fist_r": "hand_r",
+                "arm_l_upper": "arm_l", "arm_l_lower": "forearm_l", "fist_l": "hand_l"}
+        for b in shape.base_boxes(self.night()):
+            if b["id"] in want:
+                self.assertEqual(want[b["id"]], b["bone"], b["id"])
+        arm_bones = {"arm_r", "forearm_r", "hand_r", "arm_l", "forearm_l", "hand_l"}
+        for name in ("skirt", "pouch", "ribbons", "hairdo", "wings"):
+            used = {x["bone"] for x in expand({"id": name, "preset": name}, self.night())}
+            if name == "ribbons":
+                self.assertEqual({"hand_r"}, used & arm_bones)  # the wrist ribbons follow the hand
+            else:
+                self.assertFalse(used & arm_bones, name)
+
+    def test_layered_pauldrons_cover_only_the_shoulder_cap(self):
+        body = presets.body_from(self.night())
+        upper = body.arm_top - body.elbow
+        for scale, share in ((1.0, 0.45), (0.8, 0.36)):
+            boxes = explicit(expand({"id": "p", "preset": "pauldrons", "style": "layered", "scale": scale}, self.night()))
+            low = min(c[1] for b in boxes for c in shape.box_corners(b))
+            self.assertGreaterEqual(low, body.arm_top - share * upper, "scale %s" % scale)  # the sleeve shows below
+
+    def test_wrist_ribbons_hang_outside_the_arm_next_to_the_hand(self):
+        body = presets.body_from(self.night())
+        boxes = explicit(expand({"id": "r", "preset": "ribbons", "style": "wrist"}, self.night()))
+        right = [b for b in boxes if b["bone"] == "hand_r"]
+        outer = max(c[0] for b in right for c in shape.box_corners(b))
+        self.assertGreater(outer, body.arm_cx + body.arm_t / 2.0 + 0.1)
+        for b in right:  # no ribbon box starts inside the arm column in front of the sleeve
+            pts = shape.box_corners(b)
+            if min(c[0] for c in pts) < body.arm_cx + body.arm_t / 2.0 - 0.05:
+                self.assertGreater(min(c[2] for c in pts), body.arm_t / 2.0 - 0.01, b["id"])  # only behind the arm
+
+
+class GreavesBootTest(unittest.TestCase):
+    def test_material_override_reaches_every_box(self):
+        for style in ("plate", "spiked", "sabaton"):
+            boxes = expand({"id": "g", "preset": "greaves", "style": style, "material": "silk", "cuff": True, "sole": True})
+            self.assertEqual({"silk"}, {b["material"] for b in boxes}, style)
+            default = expand({"id": "g", "preset": "greaves", "style": style})
+            self.assertIn("plate_gold", {b["material"] for b in default})  # existing looks are unchanged without an override
+
+    def test_cuff_and_sole_are_optional_boot_parts(self):
+        plain = expand({"id": "g", "preset": "greaves", "style": "sabaton"})
+        boots = expand({"id": "g", "preset": "greaves", "style": "sabaton", "cuff": True, "sole": True, "cuff_color": "#2a4a90"})
+        self.assertEqual(plain, expand({"id": "g", "preset": "greaves", "style": "sabaton", "cuff": False, "sole": False}))
+        ids = {b["id"] for b in boots} - {b["id"] for b in plain}
+        self.assertEqual({"g_cuff_r", "g_sole_r"}, ids)
+        self.assertNotIn("g_knee_r", {b["id"] for b in boots})  # boots have no knee plate
+        cuff = [b for b in boots if b["id"] == "g_cuff_r"][0]
+        self.assertEqual("#2a4a90", cuff["color"])
+        sole = [b for b in boots if b["id"] == "g_sole_r"][0]
+        boot = [b for b in boots if b["id"] == "g_boot_r"][0]
+        self.assertLess(sole["size"][1], 0.06)
+        self.assertGreater(sole["min"][2], boot["min"][2] - 0.1)
+        for style in ("plate", "spiked"):  # the cuff also works on shin armor and keeps the knee plate; the sole is a boot part
+            armor = expand({"id": "g", "preset": "greaves", "style": style, "cuff": True, "sole": True})
+            self.assertIn("g_cuff_r", {b["id"] for b in armor})
+            self.assertIn("g_knee_r", {b["id"] for b in armor})
+            self.assertNotIn("g_sole_r", {b["id"] for b in armor})
+
+    def test_boots_clear_the_body(self):
+        for p in ClearanceTest.prop_sets():
+            ClearanceTest().assert_clear({"id": "g", "preset": "greaves", "style": "sabaton", "cuff": True, "sole": True}, p, eps=0.03)
+
+
+class PouchTest(unittest.TestCase):
+    def test_sits_on_the_chosen_side_and_stays_off_the_body(self):
+        for side, sign in (("right", 1.0), ("left", -1.0)):
+            boxes = expand({"id": "p", "preset": "pouch", "side": side})
+            for b in explicit(boxes):
+                if b["id"] != "p_belt":
+                    self.assertGreater(sign * (b["min"][0] + b["size"][0] / 2.0), 0.0, "%s %s" % (side, b["id"]))
+        for p in ClearanceTest.prop_sets():
+            ClearanceTest().assert_clear({"id": "p", "preset": "pouch", "belt": False}, p, eps=0.005)
+
+    def test_vials_count_and_colours_cycle(self):
+        for n in range(0, 5):
+            boxes = expand({"id": "p", "preset": "pouch", "vials": n, "colors": ["#111111", "#222222"]})
+            vials = [b for b in boxes if b["id"].startswith("p_vial")]
+            self.assertEqual(n, len(vials))
+            self.assertEqual(n, len([b for b in boxes if b["id"].startswith("p_cork")]))
+            self.assertEqual(["#111111", "#222222", "#111111", "#222222"][:n], [b["color"] for b in vials])
+        self.assertEqual(["#e04ad8", "#58e07a", "#4ad8f0"],
+                         [b["color"] for b in expand({"id": "p", "preset": "pouch"}) if b["id"].startswith("p_vial")])
+
+    def test_vials_stand_on_top_of_the_pouch(self):
+        boxes = expand({"id": "p", "preset": "pouch", "vials": 4})
+        body = [b for b in boxes if b["id"] == "p_body"][0]
+        for b in boxes:
+            if b["id"].startswith("p_vial"):
+                self.assertGreaterEqual(b["min"][1] + b["size"][1], body["min"][1] + body["size"][1] + 0.05)
+
+    def test_belt_is_optional_and_wraps_the_waist(self):
+        with_belt = expand({"id": "p", "preset": "pouch"})
+        without = expand({"id": "p", "preset": "pouch", "belt": False})
+        belt = [b for b in with_belt if b["id"] == "p_belt"]
+        self.assertEqual(1, len(belt))
+        self.assertFalse([b for b in without if b["id"] == "p_belt"])
+        body = presets.body_from(props())
+        self.assertGreater(belt[0]["size"][0], 2 * body.aw)
+        self.assertLessEqual(belt[0]["size"][1], 0.06)
+
+
+class NewPresetValidationTest(unittest.TestCase):
+    def codes(self, att):
+        return [(e.path, e.code) for e in presets.validate_attachment(att)]
+
+    def test_new_parameters_are_validated(self):
+        self.assertEqual([("/tip", "bad_color")], self.codes({"preset": "wings", "tip": "violet"}))
+        self.assertEqual([], self.codes({"preset": "wings", "style": "seraph", "tip": "#8a75e7"}))
+        self.assertEqual([("/ribbon_loops", "bad_type")], self.codes({"preset": "hairdo", "ribbon_loops": "yes"}))
+        self.assertEqual([("/style", "unknown_value")], self.codes({"preset": "hairdo", "style": "afro"}))
+        self.assertEqual([("/length", "out_of_range")], self.codes({"preset": "ribbons", "length": 2.5}))
+        self.assertEqual([("/length", "out_of_range")], self.codes({"preset": "ribbons", "length": 0.4}))
+        self.assertEqual([("/style", "unknown_value")], self.codes({"preset": "ribbons", "style": "chest"}))
+        self.assertEqual([("/slit", "bad_type")], self.codes({"preset": "skirt", "slit": 1}))
+        self.assertEqual([("/hem", "bad_type")], self.codes({"preset": "skirt", "hem": "yes"}))
+        self.assertEqual([("/vials", "out_of_range")], self.codes({"preset": "pouch", "vials": 5}))
+        self.assertEqual([("/vials", "bad_type")], self.codes({"preset": "pouch", "vials": 2.5}))
+        self.assertEqual([("/side", "unknown_value")], self.codes({"preset": "pouch", "side": "back"}))
+
+    def test_colors_list_is_validated(self):
+        self.assertEqual([], self.codes({"preset": "pouch", "colors": ["#112233", "primary"]}))
+        self.assertEqual([("/colors", "bad_type")], self.codes({"preset": "pouch", "colors": "#112233"}))
+        self.assertEqual([("/colors", "out_of_range")], self.codes({"preset": "pouch", "colors": []}))
+        self.assertEqual([("/colors", "out_of_range")], self.codes({"preset": "pouch", "colors": ["#111111"] * 5}))
+        self.assertEqual([("/colors/1", "bad_color")], self.codes({"preset": "pouch", "colors": ["#111111", "green"]}))
+        self.assertEqual([("/colors/0", "bad_type")], self.codes({"preset": "pouch", "colors": [3]}))
+
+    def test_new_presets_are_deterministic(self):
+        for name, att, key, val in all_variants():
+            if name in ("hairdo", "ribbons", "pouch", "skirt", "wings"):
+                self.assertEqual(expand(att), expand(att), "%s %s=%s" % (name, key, val))
+
+
+class NewPresetBoundsTest(unittest.TestCase):
+    def test_new_presets_stay_inside_the_model_limits_at_the_scale_extremes(self):
+        for att in ({"preset": "hairdo", "ribbon_loops": True, "pins": True}, {"preset": "hairdo", "style": "ponytail"},
+                    {"preset": "hairdo", "style": "braid"}, {"preset": "hairdo", "style": "twin_buns"},
+                    {"preset": "ribbons", "style": "all", "length": 2.0}, {"preset": "pouch", "vials": 4},
+                    {"preset": "pouch", "side": "left"}, {"preset": "skirt", "slit": True, "hem": True},
+                    {"preset": "skirt", "style": "kilt", "slit": True, "hem": True}, {"preset": "skirt", "style": "tabard", "slit": True, "hem": True},
+                    {"preset": "wings", "style": "seraph", "spread": 15.0}):
+            for scale in (0.5, 1.0, 2.5):
+                a = dict(att, id="x", scale=scale)
+                boxes, _ = shape.resolve({"attachments": [a]})  # raises on out_of_bounds / too_many_boxes
+                self.assertLessEqual(len(boxes) - 14, presets.MAX_BOXES, "%s scale %s" % (att, scale))
+
+    def test_proportions_move_the_new_head_and_hip_pieces(self):
+        wide = props(shoulders=1.5, torso_width=1.5)
+        for att in ({"preset": "pouch"}, {"preset": "ribbons", "style": "wrist"}):
+            a = extent(expand(dict(att, id="x"), props()))
+            b = extent(expand(dict(att, id="x"), wide))
+            self.assertGreater(b[0][1], a[0][1] + 0.05, att)  # they follow the wider body outwards
+
+
+class AngelShapeTest(unittest.TestCase):
+    SHAPE = {
+        "silhouette": "caster", "remove": ["hood", "halo", "orbs", "cape"],
+        "proportions": {"head": 1.0, "shoulders": 0.9, "arm_thickness": 0.75, "leg_thickness": 0.75},
+        "attachments": [
+            {"id": "wings", "preset": "wings", "style": "seraph", "spread": 15.0},
+            {"id": "skirt", "preset": "skirt", "style": "robe", "scale": 0.65, "slit": True, "hem": True},
+            {"id": "hairdo", "preset": "hairdo", "style": "bun", "ribbon_loops": True, "pins": True},
+            {"id": "ribbons", "preset": "ribbons", "style": "all"},
+            {"id": "pouch", "preset": "pouch"},
+            {"id": "pauldrons", "preset": "pauldrons", "style": "layered"},
+        ],
+        "texture": {"density": 48},
+    }
+
+    def test_whole_angel_resolves_within_limits_and_builds_an_atlas(self):
+        self.assertEqual([], shape.validate_shape(self.SHAPE))
+        boxes, _ = shape.resolve(self.SHAPE)
+        self.assertLessEqual(len(boxes), shape.MAX_BOXES)
+        model = shape.build_model({"shape": self.SHAPE, "mod_id": "m", "id": "angel"})
+        self.assertLessEqual(max(model.atlas), 512)
+
 
 
 if __name__ == "__main__":

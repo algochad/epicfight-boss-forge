@@ -18,11 +18,11 @@ public class RenderTest {
     private static final String BOSS = "{{MOD_ID}}:{{BOSS_ID}}";
     // boss at (0.5, 272, 8.5), above the cloud layer facing -z; cameras fly around it
     private static final double[][] VIEWS = {
-        {0.5, 276.5, 1.0, 0, 24},       // front
-        {5.0, 276.5, 4.5, 40, 24},      // front right
-        {-4.0, 276.5, 4.5, -40, 24},    // front left
-        {0.5, 276.5, 16.0, 180, 24},    // back
-        {0.5, 276.0, 5.0, 0, 22},       // close up
+        {0.5, 273.6, 0.5, 0, 4},        // front
+        {5.0, 273.6, 4.5, 40, 4},       // front right
+        {-4.0, 273.6, 4.5, -40, 4},     // front left
+        {0.5, 273.6, 16.5, 180, 4},    // back
+        {0.5, 273.4, 4.2, 0, 3},        // close up
     };
     private static int ticks;
     private static boolean meshLogged;
@@ -45,15 +45,20 @@ public class RenderTest {
             mc.player.connection.sendCommand("time set noon");
             mc.player.connection.sendCommand("effect give @s minecraft:night_vision infinite 0 true");
         }
-        if (ticks == 30) mc.player.connection.sendCommand("tp @s 0.5 276.5 -0.5 0 12");
+        if (ticks == 30) mc.player.connection.sendCommand("tp @s 0.5 273.6 -0.5 0 4");
         if (ticks == 40) {
             mc.player.getAbilities().flying = true;
             mc.player.onUpdateAbilities();
         }
         // wait for the chunks around the arena to load before summoning
         if (ticks == 120) {
-            mc.player.connection.sendCommand("summon " + BOSS + " 0.5 272 8.5 {NoAI:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180.0f,0.0f]}");
+            // plain summon (no NBT) so finalizeSpawn runs and equips the main weapon, exactly like a sigil or spawn egg
+            mc.player.connection.sendCommand("summon " + BOSS + " 0.5 272 8.5");
             mc.options.hideGui = true;
+        }
+        if (ticks == 123) {
+            mc.player.connection.sendCommand("data merge entity @e[type=" + BOSS + ",limit=1] {NoAI:1b,NoGravity:1b,PersistenceRequired:1b}");
+            mc.player.connection.sendCommand("tp @e[type=" + BOSS + ",limit=1] 0.5 272 8.5 180 0");
         }
         if (ticks >= 160) {
             if (view < VIEWS.length) {
@@ -65,12 +70,19 @@ public class RenderTest {
                 } else if (stage == 1) {
                     wait++;
                     int found = 0;
+                    String held = "none";
                     for (net.minecraft.world.entity.Entity ent : mc.level.entitiesForRendering()) {
-                        if (ent.getType().toString().contains("{{BOSS_ID}}")) found++;
+                        if (ent.getType().toString().contains("{{BOSS_ID}}")) {
+                            found++;
+                            if (ent instanceof net.minecraft.world.entity.LivingEntity le) {
+                                held = String.valueOf(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(le.getMainHandItem().getItem()));
+                            }
+                        }
                     }
                     // photograph once the camera settled and the boss is tracked (give up waiting after 400 ticks)
                     if (wait >= 40 && (found > 0 || wait >= 400)) {
                         System.out.println("RT_ENTITY view=" + (view + 1) + " count=" + found);
+                        System.out.println("RT_HELD view=" + (view + 1) + " item=" + held);
                         Screenshot.grab(mc.gameDirectory, mc.getMainRenderTarget(), c -> System.out.println("RT_SHOT"));
                         stage = 2;
                         wait = 0;

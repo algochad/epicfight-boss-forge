@@ -261,9 +261,9 @@ def _weapon_files(w: dict, mod: str, essence_ref: str, palette: Optional[dict],
     wid = w["id"]
     category = w.get("category")
     cat = _cat(category)
-    size = cat["model"]["size"]
     seed = zlib.crc32(wid.encode("utf-8"))
     try:
+        size = sprites.sprite_resolution(category, w.get("appearance"))
         sprite = sprites.render_weapon(category, w.get("appearance"), size, seed, palette)
     except sprites.ShapeError as e:
         raise BossForgeError("/weapons/%s/appearance" % wid, "unknown_value", str(e))

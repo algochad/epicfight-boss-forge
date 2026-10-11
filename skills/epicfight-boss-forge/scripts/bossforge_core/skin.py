@@ -23,7 +23,7 @@ from .features import PaintState, RegionSel, expand_regions
 from .materials import Texel, shade_texel
 from .pngio import Canvas, write_png
 from .spec import BossForgeError, Err, GenFile
-from .preview import render_preview
+from .preview import render_closeup, render_preview
 
 MAX_TEXTURE_EDGE = 512
 HANDS_MAX_LY = features.HANDS_MAX_LY
@@ -220,10 +220,25 @@ def _build_texels(mesh, tpl: dict, cover, overlay_parts, front_sign: int, right_
         else:
             t.fu = t.lz
         t.fv = 1.0 - t.ly
+        t.u = pz * front_sign if face in ("left", "right", "side") else px * t.vr
+        t.v = py
         horiz = hi[2] - lo[2] if face in ("left", "right", "side") else hi[0] - lo[0]
         t.eh = max(horiz, 1e-4)
         t.ev = max(hi[1] - lo[1], 1e-4)
         out.append(t)
+    # position inside the atlas rectangle of the (part, face) a texel belongs to: materials such as silk_feather shade
+    # along and across a box face whatever its rotation
+    rects = {}  # type: Dict[Tuple[str, str], List[int]]
+    for t in out:
+        r = rects.setdefault((t.part, t.face), [t.x, t.x, t.y, t.y])
+        r[0], r[1], r[2], r[3] = min(r[0], t.x), max(r[1], t.x), min(r[2], t.y), max(r[3], t.y)
+    for t in out:
+        x0, x1, y0, y1 = rects[(t.part, t.face)]
+        cols, rows = x1 - x0 + 1, y1 - y0 + 1
+        t.ru = (t.x - x0 + 0.5) / cols
+        t.rv = (t.y - y0 + 0.5) / rows
+        t.rnu = 1.0 / cols
+        t.rnv = 1.0 / rows
     return out
 
 
@@ -281,6 +296,7 @@ def _resolve(palette: dict, ref, default_key: str):
 def _shade_entry(entry: dict, t: Texel, palette: dict, seed: int):
     c = _resolve(palette, entry.get("color"), "primary")
     a = _resolve(palette, entry.get("accent"), "accent")
+    t.base_rgb, t.accent_rgb = c, a
     return shade_texel(entry.get("material", "cloth"), t, c, a, seed)
 
 
@@ -445,6 +461,12 @@ def generate_with_report(n: dict, ctx):
     tex_rel = "src/main/resources/assets/%s/textures/entity/%s.png" % (n["mod_id"], n["id"])
     prev_rel = "bossforge/previews/%s_preview.png" % n["id"]
     files = [GenFile(tex_rel, tex_bytes, "texture"), GenFile(prev_rel, prev_bytes, "preview")]
+    closeup_rel = None
+    if custom:  # wide wings / capes shrink the whole-body views: add a body + face closeup to read faces and ornaments
+        closeup = render_closeup(mesh, tpl, canvas)
+        if closeup is not None:
+            closeup_rel = "bossforge/previews/%s_closeup.png" % n["id"]
+            files.append(GenFile(closeup_rel, write_png(None, closeup), "preview"))
     warnings = [_err_dict(w) for w in (d.get("warnings") or [])] + shape_warnings + list(info["warnings"])
     report = {
         "texture": {"path": tex_rel, "width": canvas.w, "height": canvas.h, "coverage": info["coverage"]},
@@ -458,6 +480,8 @@ def generate_with_report(n: dict, ctx):
         report["custom"] = True
         report["atlas"] = [canvas.w, canvas.h]
         report["shape_warnings"] = shape_warnings
+        if closeup_rel is not None:
+            report["closeup"] = closeup_rel
     return files, {}, report
 
 

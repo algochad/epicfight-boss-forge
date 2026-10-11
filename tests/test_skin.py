@@ -855,7 +855,7 @@ class GenerateCustomShapeTests(unittest.TestCase):
         self.assertTrue(r["custom"])
         self.assertEqual(r["template"], "biped")
         self.assertEqual(self.lang, {})
-        kinds = {f.kind: f for f in self.files}
+        kinds = {f.kind: f for f in self.files if not f.relpath.endswith("_closeup.png")}
         self.assertEqual(kinds["texture"].relpath, "src/main/resources/assets/roundtable/textures/entity/king_arthur.png")
         self.assertEqual(kinds["preview"].relpath, "bossforge/previews/king_arthur_preview.png")
         w, h = pngio.png_size(kinds["texture"].data)
@@ -869,6 +869,13 @@ class GenerateCustomShapeTests(unittest.TestCase):
         n4["appearance"]["texture"]["scale"] = 4
         _, _, r4 = skin.generate_with_report(n4, self.ctx)
         self.assertEqual(r4["atlas"], r["atlas"])
+
+    def test_custom_shapes_also_get_a_closeup_of_the_body_and_the_face(self):
+        by_path = {f.relpath: f for f in self.files}
+        closeup = by_path["bossforge/previews/king_arthur_closeup.png"]
+        self.assertEqual(closeup.kind, "preview")
+        self.assertEqual(self.report["closeup"], closeup.relpath)
+        self.assertEqual(pngio.png_size(closeup.data), (3 * preview.CLOSEUP_W + 2 * 4, preview.CLOSEUP_BODY_H))
 
     def test_deterministic(self):
         again, _ = skin.generate(self.n, self.ctx)

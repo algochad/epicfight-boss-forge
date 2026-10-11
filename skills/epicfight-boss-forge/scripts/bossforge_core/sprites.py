@@ -1,4 +1,5 @@
-"""Procedural item sprites: weapons (7 categories, per-category shapes), boss essence and summon sigil.
+"""Procedural item sprites: weapons (7 categories, per-category shapes, plus the 64 px spear staffs), boss essence and
+summon sigil.
 
 All shapes are evaluated in a 32-px "design space" (origin bottom-left, blade axis pointing up-right at 45 degrees)
 and sampled at the pixel centres of the target resolution, so a 16x16 render is the same weapon as the 32x32 one.
@@ -12,7 +13,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from .colors import clamp8, hex_to_rgb, is_hex, mix, resolve, shade
 from .noise import hash01
 from .pngio import Canvas
-from .spec import GUARD_SHAPES, POMMEL_SHAPES, data
+from .spec import GUARD_SHAPES, POMMEL_SHAPES, data, weapon_resolutions
 
 RGB = Tuple[int, int, int]
 Pts = List[Tuple[float, float, float]]  # stroke samples: (a, b, radius)
@@ -50,11 +51,12 @@ HOLD_A: Dict[str, float] = {
 DEFAULT_APPEARANCE = {
     "blade": "#cfd6e4", "guard": "#d4aa32", "grip": "#5a3a22", "accent": "#d4aa32", "gem": "#46a0ff",
     "glow": False, "motif": "fuller", "guard_shape": "bar", "pommel_shape": "disc", "length": 1.0, "width": 1.0,
+    "rings": 2, "spikes": 3,
 }
 
 
 class ShapeError(ValueError):
-    """An appearance option (shape, guard_shape, pommel_shape, length, width) is not usable."""
+    """An appearance option (shape, guard_shape, pommel_shape, length, width, rings, spikes, resolution) is not usable."""
 
 
 def _fit_length(length: float, curve: float, margin: float = _TIP_MARGIN) -> float:
@@ -84,6 +86,11 @@ def _resolve_appearance(appearance: Optional[dict], palette: Optional[dict], cat
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
             raise ShapeError("%s %r must be a number in %s..%s" % (key, v, lo, hi))
         out[key] = float(v)
+    for key, lo, hi in (("rings", 0, 4), ("spikes", 2, 5)):
+        v = ap[key]
+        if isinstance(v, bool) or not isinstance(v, int) or not lo <= v <= hi:
+            raise ShapeError("%s %r must be an integer in %s..%s" % (key, v, lo, hi))
+        out[key] = v
     out.update(shape=shape, guard_shape=guard, pommel_shape=pommel)
     return out
 
@@ -522,6 +529,202 @@ def _paint_spear(ap: dict, res: int, seed: int) -> Callable[[int, int], Optional
     return fn
 
 
+# --------------------------------------------------------------------------------------------- staffs (spear shapes)
+STAFF_SHAPES = ("crystal_staff", "orb_staff")
+_WHITE = (255, 255, 255)
+# crystal_staff shaft colour segments from the foot upward: (start as a fraction of the shaft, colour key)
+_STAFF_BANDS = ((0.00, "pale"), (0.06, "aqua"), (0.15, "blue"), (0.27, "aqua"), (0.36, "blue"), (0.49, "aqua"),
+                (0.57, "blue"), (0.68, "pale"))
+
+
+def _gold(ap: dict, f: float) -> RGB:
+    g = ap["guard"]
+    return mix(shade(g, 0.62), mix(g, _WHITE, 0.42), f)
+
+
+def _crystal(ap: dict, u: float, tone: float, x: int, y: int, seed: int) -> RGB:
+    """Faceted crystal pixel: u is the lateral position inside the shard (-1..1, negative = up-left), tone shifts the
+    facet edges so neighbouring shards do not line up."""
+    blade = ap["blade"]
+    v = u + tone
+    if v < -0.55:
+        col = mix(blade, _WHITE, 0.55)
+    elif v < -0.15:
+        col = mix(blade, _WHITE, 0.25)
+    elif v < 0.25:
+        col = blade
+    elif v < 0.60:
+        col = mix(blade, ap["gem"], 0.38)
+    else:
+        col = mix(shade(blade, 0.68), ap["gem"], 0.28)
+    if hash01(x, y, 5, seed) > 0.94:
+        col = mix(col, _WHITE, 0.40)
+    return col
+
+
+def _orb(ap: dict, da: float, db: float, rad: float) -> Optional[RGB]:
+    """Faceted glowing orb: dark rim, square-ish concentric facets on screen axes, bright core and a highlight pixel."""
+    r = math.hypot(da, db) / rad
+    if r > 1.0:
+        return None
+    g = ap["gem"]
+    dx, dy = (da + db) * _D[0], (db - da) * _D[0]
+    m = max(abs(dx), abs(dy)) / rad
+    if r > 0.84:
+        return shade(g, 0.62)
+    if max(abs(dx + 0.12 * rad), abs(dy + 0.12 * rad)) < 0.11 * rad:
+        return mix(g, _WHITE, 0.97)
+    if m < 0.30:
+        return mix(g, _WHITE, 0.78)
+    col = mix(g, _WHITE, 0.38) if m < 0.52 else g if m < 0.74 else shade(g, 0.86)
+    if dx + dy > 0.3 * rad:
+        col = shade(col, 0.88)
+    return col
+
+
+def _paint_staff(ap: dict, res: int, seed: int) -> Callable[[int, int], Optional[RGB]]:
+    """crystal_staff: banded crystal shaft with gold rings, an orb in a gold/silver ring, a stepped crystal spire above,
+    a crystal flare below and a crystal point at the foot. orb_staff: wooden shaft, an orb in a gold ring and a fan of
+    crystal shards. The orb ring stays see-through so the staff reads as a ring around an orb; every part is at least
+    ~1 px wide so the sprite stays one connected piece at any resolution."""
+    crystal = ap["shape"] == "crystal_staff"
+    s = 32.0 / res
+    hmin = 0.55 * s
+    wf = _width_factor(ap["width"], res)
+    rings, spikes = ap["rings"], ap["spikes"]
+    pal = {
+        "pale": mix(ap["blade"], _WHITE, 0.30),
+        "blue": shade(ap["grip"], 0.78),
+        "aqua": mix(mix(ap["grip"], ap["blade"], 0.35), (70, 225, 215), 0.35),
+        "silver": mix((150, 156, 170), ap["blade"], 0.15),
+    }
+    total = min(_fit_length(44.0, 0.0) * ap["length"], _fit_length(1e9, 0.0, _MAX_TIP_MARGIN))
+    if crystal:
+        foot_l, band_l, collar_l, cluster_l, zone_h, spire_l = 3.8, 1.8, 2.1, 4.4, 8.4, 6.6 * ap["length"]
+    else:
+        foot_l, band_l, collar_l, cluster_l, zone_h, spire_l = 3.0, 1.2, 1.8, 0.0, 7.6, 7.0 * ap["length"]
+    shaft_l = max(total - (foot_l + band_l + collar_l + cluster_l + zone_h + spire_l), 3.0)
+    a_s0 = foot_l + band_l
+    a_s1 = a_s0 + shaft_l
+    a_c0 = a_s1 + collar_l
+    a_z0 = a_c0 + cluster_l
+    a_z1 = a_z0 + zone_h
+    tip = a_z1 + spire_l
+    a_c = a_z0 + zone_h / 2.0
+    half = zone_h / 2.0
+
+    th = max(0.35, hmin)  # half thickness of the gold ring tube
+    cb = max(0.45, hmin)  # half thickness of the gold struts between orb and ring
+    shaft_hw = max((1.0 if crystal else 1.05) * wf, hmin * 1.4)
+    ra = half - (1.05 if crystal else 0.5)  # gold ring centre line, axial / lateral semi axes
+    rb = (3.7 if crystal else 3.8) * wf
+    rad = min((2.25 if crystal else 2.0) * wf, ra - th - 0.45)
+    bar_hw = max(2.8 * wf, hmin)
+    mids = {3: (0.5,), 4: (0.34, 0.67)}.get(rings, ())
+    fan: List[Tuple[float, float, float, float, float]] = []
+    if not crystal:
+        for i in range(spikes):
+            deg = -38.0 + 76.0 * i / (spikes - 1)
+            ln = spire_l * (1.0 - 0.40 * abs(deg) / 38.0) * (1.0 if i % 2 == 0 else 0.92)
+            fan.append((abs(deg), math.cos(math.radians(deg)), math.sin(math.radians(deg)), ln,
+                        1.1 * wf * (1.0 - 0.25 * abs(deg) / 38.0)))
+        fan.sort()
+    a_o = a_z1 - 0.4  # origin of the shard fan
+
+    def gold_or_silver(on: bool, f: float) -> RGB:
+        return _gold(ap, f) if on else mix(shade(pal["silver"], 0.7), pal["silver"], f)
+
+    def fn(x: int, y: int) -> Optional[RGB]:
+        a, b = _ab(x, y, s)
+        if a < 0.0 or a > tip:
+            return None
+        ab = abs(b)
+        if a_z0 <= a <= a_z1:
+            da = a - a_c
+            ada = abs(da)
+            if math.hypot(da, b) <= rad:
+                return _orb(ap, da, b, rad)
+            if ab <= cb and rad - 0.4 <= ada <= half - 0.75 or ada <= cb and rad - 0.4 <= ab <= rb:
+                return _gold(ap, _clamp01(0.5 - 0.5 * b / max(rb, 1.0) - 0.15 * da / half))
+            if crystal and half - 0.7 <= ada <= half and ab <= bar_hw:
+                return mix(shade(pal["silver"], 0.78), mix(pal["silver"], _WHITE, 0.3), _clamp01(0.5 - 0.5 * b / bar_hw))
+            grad = math.hypot(2.0 * da / (ra * ra), 2.0 * b / (rb * rb))
+            f_e = (da / ra) ** 2 + (b / rb) ** 2 - 1.0
+            dist = f_e / grad if grad > 1e-9 else 1e9
+            if abs(dist) <= th:
+                col = _gold(ap, _clamp01(0.5 - 0.45 * b / rb))
+                return mix(col, _WHITE, 0.35) if hash01(x, y, 9, seed) > 0.9 else col
+            if crystal and dist > th and ada <= 0.7 * ra:
+                ro = math.hypot(da / (ra + 0.9), b / (rb + th + 0.9))
+                if ro <= 1.0:
+                    col = mix(shade(pal["silver"], 0.8), mix(pal["silver"], _WHITE, 0.25), _clamp01(0.5 - 0.5 * b / (rb + 1.0)))
+                    return mix(col, ap["blade"], 0.6) if ro > 0.9 else col
+            if fan:
+                return _fan_px(a, b, x, y)
+            return None
+        if a < foot_l:
+            hw = (min(1.45, 0.25 + 0.8 * a) if a < 1.5 else 1.45 - 0.2 * (a - 1.5) / max(foot_l - 1.5, 1e-6)) * wf
+            hw = max(hw, hmin)
+            return _crystal(ap, b / hw, 0.1, x, y, seed) if ab <= hw else None
+        if a < a_s0:
+            hw = max(1.3 * wf, hmin * 1.4)
+            return gold_or_silver(rings >= 2, _clamp01(0.5 - 0.5 * b / hw)) if ab <= hw else None
+        if a < a_s1:
+            ringed = any(abs(a - (a_s0 + p * shaft_l)) <= 0.55 for p in mids)
+            hw = shaft_hw + (0.3 * wf if ringed else 0.0)
+            if ab > hw:
+                return None
+            if ringed:
+                return _gold(ap, _clamp01(0.5 - 0.5 * b / hw))
+            t = (a - a_s0) / shaft_l
+            if crystal:
+                key = "pale"
+                for st, k in _STAFF_BANDS:
+                    if t >= st:
+                        key = k
+                base = pal[key]
+            else:
+                base = _bands(ap["grip"], a, 3.0)
+            return mix(shade(base, 0.7), mix(base, _WHITE, 0.1), _clamp01(0.5 - 0.5 * b / hw))
+        if a < a_c0:
+            u = (a - a_s1) / collar_l
+            hw = max((1.4 + 0.45 * u) * wf, hmin * 1.4)
+            if ab > hw:
+                return None
+            col = gold_or_silver(rings >= 1, _clamp01(0.5 - 0.45 * b / hw))
+            return shade(col, 0.78) if u < 0.18 else col
+        if a < a_z0:
+            u = (a - a_c0) / cluster_l
+            hw = max((1.5 + 1.3 * min(1.0, 1.7 * u)) * wf, hmin)
+            return _crystal(ap, b / hw, 0.3, x, y, seed) if ab <= hw else None
+        if not crystal:
+            return _fan_px(a, b, x, y)
+        tl = spire_l / spikes
+        k = min(int((a - a_z1) / tl), spikes - 1)
+        u = (a - a_z1 - k * tl) / tl
+        hw = 2.3 * wf * (1.0 - 0.72 * k / (spikes - 1))
+        if k == spikes - 1 and u > 0.6:
+            hw *= max(0.35, 1.0 - 1.6 * (u - 0.6))
+        hw = max(hw, hmin)
+        if ab > hw:
+            return None
+        col = _crystal(ap, b / hw, 0.28 * k - 0.1, x, y, seed)
+        return mix(col, _WHITE, 0.45) if k < spikes - 1 and u > 0.78 else col  # lit top face of each step
+
+    def _fan_px(a: float, b: float, x: int, y: int) -> Optional[RGB]:
+        da = a - a_o
+        for i, (_, c, sn, ln, w) in enumerate(fan):
+            p = da * c + b * sn
+            q = -da * sn + b * c
+            if 0.0 <= p <= ln:
+                hw = max(w * (1.0 - (p / ln) ** 1.4), hmin)
+                if abs(q) <= hw:
+                    return _crystal(ap, q / hw, 0.3 * i - 0.2, x, y, seed)
+        return None
+
+    return fn
+
+
 # --------------------------------------------------------------------------------------------- post passes
 _NEIGH = ((-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1))
 
@@ -549,19 +752,43 @@ def hold_point(category: str) -> Tuple[float, float]:
     return px / 2.0 - 8.0, 8.0 - py / 2.0
 
 
+def sprite_resolution(category: str, appearance: Optional[dict]) -> int:
+    """Sprite size in pixels of a weapon: the category's native size (16 or 32) unless its shape offers more.
+
+    `appearance.resolution` picks one of `weapon_resolutions(category, shape)`; the staffs default to 64. Raises
+    ShapeError for a resolution the shape does not offer."""
+    if category not in CATEGORIES:
+        raise ValueError("unknown weapon category %r; allowed: %s" % (category, ", ".join(CATEGORIES)))
+    ap = appearance or {}
+    shape = ap.get("shape") or data("weapon-categories")[category]["shapes"]["default"]
+    allowed = weapon_resolutions(category, shape)
+    res = ap.get("resolution", allowed[0])
+    if isinstance(res, bool) or res not in allowed:
+        raise ShapeError("resolution %r is not available for %s/%s; allowed values: %s"
+                         % (res, category, shape, ", ".join(str(v) for v in allowed)))
+    return int(res)
+
+
 def render_weapon(category: str, appearance: Optional[dict], res: int, seed: int, palette: Optional[dict] = None) -> Canvas:
-    """Render one weapon sprite (res 16 or 32). Colours may be #rrggbb or keys of `palette`.
+    """Render one weapon sprite (res 16 or 32; 64 for the staff shapes). Colours may be #rrggbb or keys of `palette`.
 
     Appearance options beyond colours: shape (per category, see weapon-categories.json), guard_shape, pommel_shape,
-    length (0.8-1.15) and width (0.7-1.4). Invalid values raise ShapeError (a ValueError); bad colours raise ValueError.
+    length (0.8-1.15), width (0.7-1.4) and, for the staff shapes, rings (0-4) and spikes (2-5). `res` is the size to
+    draw; callers take it from `sprite_resolution`. Invalid values raise ShapeError (a ValueError); bad colours raise
+    ValueError.
     """
     if category not in CATEGORIES:
         raise ValueError("unknown weapon category %r; allowed: %s" % (category, ", ".join(CATEGORIES)))
-    if res not in (16, 32):
-        raise ValueError("sprite resolution must be 16 or 32, got %r" % (res,))
+    if res not in (16, 32, 64):
+        raise ValueError("sprite resolution must be 16, 32 or 64, got %r" % (res,))
     ap = _resolve_appearance(appearance, palette, category)
+    if res == 64 and 64 not in weapon_resolutions(category, ap["shape"]):
+        raise ShapeError("resolution 64 is not available for %s/%s; allowed values: %s" % (
+            category, ap["shape"], ", ".join(str(v) for v in weapon_resolutions(category, ap["shape"]))))
     if category == "axe":
         fn = _paint_axe(ap, res, seed)
+    elif category == "spear" and ap["shape"] in STAFF_SHAPES:
+        fn = _paint_staff(ap, res, seed)
     elif category == "spear":
         fn = _paint_spear(ap, res, seed)
     else:

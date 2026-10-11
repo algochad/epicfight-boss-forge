@@ -198,6 +198,8 @@ def cmd_skin(args) -> int:
     res.update(report)
     res["texture"] = dict(report["texture"], path=str(out / report["texture"]["path"]) if not Path(report["texture"]["path"]).is_absolute() else report["texture"]["path"])
     res["preview"] = str(out / report["preview"]) if not Path(str(report["preview"])).is_absolute() else report["preview"]
+    if report.get("closeup"):
+        res["closeup"] = str(out / report["closeup"])
     res["warnings"] = [w.to_dict() for w in warns] + list(report.get("warnings", []))
     return _out(res)
 

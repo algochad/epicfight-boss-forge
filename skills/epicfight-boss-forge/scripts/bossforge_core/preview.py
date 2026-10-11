@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from typing import Optional
+from typing import List, Optional, Sequence
 
 from . import efmesh
 from .pngio import Canvas, hconcat
@@ -16,6 +16,9 @@ VIEWS = (("front", 0.0), ("three_quarter", 35.0), ("back", 180.0))
 CUSTOM_VIEWS = (("front", 0.0), ("three_quarter", 35.0), ("side", 90.0), ("back", 180.0))  # wings / tails need a side view
 FIT = 0.9  # fraction of the panel the model may fill
 MAX_WIDE_PANEL_W = 480  # custom shapes wider than tall get wider view panels, up to this
+CLOSEUP_W = 480  # closeup panels (custom shapes): body front, body three-quarter and the face
+CLOSEUP_BODY_H = 720
+CLOSEUP_VIEWS = (("front", 0.0), ("three_quarter", 35.0))
 _L = (-0.3, 0.6, 0.74)
 _LL = math.sqrt(sum(c * c for c in _L))
 LIGHT = (_L[0] / _LL, _L[1] / _LL, _L[2] / _LL)
@@ -30,12 +33,13 @@ def _rotate(v, flip: bool, cy: float, sy: float, cp: float, sp: float):
     return (x2, y * cp - z2 * sp, y * sp + z2 * cp)
 
 
-def _projected_extents(mesh, flip: bool, yaw_deg: float):
-    """(xmin, xmax, ymin, ymax) of the mesh in screen space (model units) for one view."""
+def _projected_extents(mesh, flip: bool, yaw_deg: float, only: Optional[Sequence[int]] = None):
+    """(xmin, xmax, ymin, ymax) of the mesh (or of the positions `only`) in screen space (model units) for one view."""
     yaw = math.radians(yaw_deg)
     pitch = math.radians(PITCH_DEG)
     cy, sy, cp, sp = math.cos(yaw), math.sin(yaw), math.cos(pitch), math.sin(pitch)
-    pts = [_rotate(p, flip, cy, sy, cp, sp) for p in mesh.positions]
+    src = mesh.positions if only is None else [mesh.positions[i] for i in only]
+    pts = [_rotate(p, flip, cy, sy, cp, sp) for p in src]
     xs = [p[0] for p in pts]
     ys = [p[1] for p in pts]
     return min(xs), max(xs), min(ys), max(ys)
@@ -63,11 +67,13 @@ def view_panel_width(mesh, front_sign: int, yaws) -> int:
 
 
 def render_view(mesh, tpl: dict, tex: Canvas, yaw_deg: float, front_sign: int,
-                panel_w: int = PANEL_W, panel_h: int = PANEL_H, scale: Optional[float] = None) -> Canvas:
+                panel_w: int = PANEL_W, panel_h: int = PANEL_H, scale: Optional[float] = None,
+                focus: Optional[Sequence[int]] = None) -> Canvas:
     """One orthographic view. yaw 0 = looking at the character's front.
 
     ``scale`` (pixels per model unit) switches to fit-to-bounds framing: the view is centred on its own
-    projected extents (stock meshes keep the original height-fitted, model-centred framing)."""
+    projected extents (stock meshes keep the original height-fitted, model-centred framing). ``focus`` (position
+    indices) centres the view on those positions only; the rest of the mesh may then fall outside the panel."""
     out = Canvas(panel_w, panel_h)
     out.fill(BG)
     od = out.data
@@ -82,7 +88,7 @@ def render_view(mesh, tpl: dict, tex: Canvas, yaw_deg: float, front_sign: int,
         scale = 0.9 * panel_h / height
         cen = _rotate(((xmin + xmax) / 2.0, (ymin + ymax) / 2.0, (zmin + zmax) / 2.0), flip, cy, sy, cp, sp)
     else:
-        x0, x1, y0, y1 = _projected_extents(mesh, flip, yaw_deg)
+        x0, x1, y0, y1 = _projected_extents(mesh, flip, yaw_deg, only=focus)
         cen = ((x0 + x1) / 2.0, (y0 + y1) / 2.0, 0.0)
     pts = []
     for p in mesh.positions:
@@ -189,6 +195,38 @@ def texture_panel(tex: Canvas, panel_h: int = PANEL_H) -> Canvas:
     out.fill((60, 64, 76, 255))
     out.blit(big, 0, 0)
     return out
+
+
+def _used_positions(mesh, keep) -> List[int]:
+    """Sorted indices of the positions of the triangles whose part's region satisfies `keep`."""
+    used = set()
+    for tri in mesh.tris:
+        if keep(mesh.region_of(tri.part)):
+            used.update(tri.p)
+    return sorted(used)
+
+
+def render_closeup(mesh, tpl: dict, tex: Canvas) -> Optional[Canvas]:
+    """Body front, body three-quarter and a face-on view of the head, framed on the body itself (head, torso,
+    arms, legs: every ordinary region) so wings, capes and halos fall off the panel edges and faces, ornaments
+    and robes can be read. None when the mesh has no ordinary body region."""
+    front_sign, _ = efmesh.frame(mesh, tpl)
+    flip = front_sign < 0
+    body = _used_positions(mesh, lambda r: r is not None and not r.startswith("box:"))
+    head = _used_positions(mesh, lambda r: r == "head")
+    if not body or not head:
+        return None
+    scale = None
+    for _name, yaw in CLOSEUP_VIEWS:
+        x0, x1, y0, y1 = _projected_extents(mesh, flip, yaw, only=body)
+        fit = min(0.92 * CLOSEUP_BODY_H / max(y1 - y0, 1e-6), 0.7 * CLOSEUP_W / max(x1 - x0, 1e-6))
+        scale = fit if scale is None else min(scale, fit)
+    panels = [render_view(mesh, tpl, tex, yaw, front_sign, panel_w=CLOSEUP_W, panel_h=CLOSEUP_BODY_H, scale=scale, focus=body)
+              for _name, yaw in CLOSEUP_VIEWS]
+    x0, x1, y0, y1 = _projected_extents(mesh, flip, 0.0, only=head)
+    face_scale = 0.8 * CLOSEUP_W / max(x1 - x0, y1 - y0, 1e-6)
+    panels.append(render_view(mesh, tpl, tex, 0.0, front_sign, panel_w=CLOSEUP_W, panel_h=CLOSEUP_W, scale=face_scale, focus=head))
+    return hconcat(panels, gap=4, bg=BG)
 
 
 def render_preview(mesh, tpl: dict, tex: Canvas) -> Canvas:

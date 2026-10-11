@@ -528,6 +528,136 @@ class ShapeTests(unittest.TestCase):
                 self.assertEqual(a.data, b.data)
 
 
+STAFF = dict(AP, shape="crystal_staff", blade="#bfe9ff", guard="#f0c850", grip="#4aa0e8", gem="#2ea8ff")
+STAFF_SHAPES = ("crystal_staff", "orb_staff")
+
+
+class StaffTests(unittest.TestCase):
+    def test_staffs_default_to_64_and_other_spear_shapes_stay_32(self):
+        for shape in STAFF_SHAPES:
+            self.assertEqual(sprites.sprite_resolution("spear", dict(STAFF, shape=shape)), 64)
+            self.assertEqual(sprites.sprite_resolution("spear", dict(STAFF, shape=shape, resolution=32)), 32)
+        for shape in ("leaf", "trident", "hooked", "broad"):
+            self.assertEqual(sprites.sprite_resolution("spear", {"shape": shape}), 32)
+        self.assertEqual(sprites.sprite_resolution("spear", None), 32)
+        self.assertEqual(sprites.sprite_resolution("sword", None), 16)
+
+    def test_resolution_the_shape_does_not_offer_is_rejected(self):
+        bad = [("spear", dict(shape="leaf", resolution=64)), ("sword", dict(resolution=64)), ("sword", dict(resolution=32)),
+               ("spear", dict(shape="crystal_staff", resolution=16)), ("spear", dict(shape="crystal_staff", resolution="64")),
+               ("spear", dict(shape="crystal_staff", resolution=True))]
+        for cat, ap in bad:
+            with self.assertRaises(sprites.ShapeError, msg=str((cat, ap))) as cm:
+                sprites.sprite_resolution(cat, ap)
+            self.assertIn("allowed values", str(cm.exception))
+        with self.assertRaises(sprites.ShapeError):
+            sprites.render_weapon("spear", {"shape": "leaf"}, 64, 1)
+        with self.assertRaises(sprites.ShapeError):
+            sprites.render_weapon("longsword", AP, 64, 1)
+
+    def test_staff_is_one_connected_piece_at_every_option_and_resolution(self):
+        for shape in STAFF_SHAPES:
+            for res_px in (64, 32, 16):
+                for rings in (0, 2, 4):
+                    for spikes in (2, 3, 5):
+                        for glow in (False, True):
+                            cv = sprites.render_weapon("spear", dict(STAFF, shape=shape, rings=rings, spikes=spikes, glow=glow), res_px, 5)
+                            self.assertEqual((cv.w, cv.h), (res_px, res_px))
+                            self.assertEqual(len(components(cv)), 1, (shape, res_px, rings, spikes, glow))
+                for ln, wd in ((0.8, 0.7), (1.15, 1.4), (0.8, 1.4), (1.15, 0.7)):
+                    cv = sprites.render_weapon("spear", dict(STAFF, shape=shape, length=ln, width=wd), res_px, 5)
+                    self.assertEqual(len(components(cv)), 1, (shape, res_px, ln, wd))
+
+    def test_staff_shows_gold_ring_orb_crystal_and_the_shaft_band_colour(self):
+        def opaque(cv):
+            return [cv.get(x, y) for y in range(cv.h) for x in range(cv.w) if cv.get(x, y)[3] == 255]
+
+        def reddish(cv):
+            return sum(1 for p in opaque(cv) if p[0] > p[1] + 80 and p[0] > p[2] + 80)
+
+        pix = opaque(sprites.render_weapon("spear", STAFF, 64, 3))
+        gold = [p for p in pix if p[0] > p[2] + 60 and p[1] > p[2] + 30]  # warm tones only come from the guard colour
+        pale = [p for p in pix if min(p[:3]) > 180]  # crystal
+        self.assertGreater(len(gold), 40)
+        self.assertGreater(len(pale), 60)
+        self.assertEqual(reddish(sprites.render_weapon("spear", STAFF, 64, 3)), 0)
+        self.assertGreater(reddish(sprites.render_weapon("spear", dict(STAFF, gem="#ff2020"), 64, 3)), 25)  # the orb
+        self.assertGreater(reddish(sprites.render_weapon("spear", dict(STAFF, grip="#c02020"), 64, 3)), 15)  # the shaft bands
+
+    def test_rings_spikes_and_shape_change_only_the_staffs(self):
+        base = sprites.render_weapon("spear", STAFF, 64, 3).data
+        self.assertNotEqual(sprites.render_weapon("spear", dict(STAFF, rings=0), 64, 3).data, base)
+        self.assertNotEqual(sprites.render_weapon("spear", dict(STAFF, rings=4), 64, 3).data, base)
+        self.assertNotEqual(sprites.render_weapon("spear", dict(STAFF, spikes=5), 64, 3).data, base)
+        orb = dict(STAFF, shape="orb_staff")
+        self.assertNotEqual(sprites.render_weapon("spear", dict(orb, spikes=5), 64, 3).data,
+                            sprites.render_weapon("spear", dict(orb, spikes=2), 64, 3).data)
+        leaf = dict(AP, shape="leaf")
+        self.assertEqual(sprites.render_weapon("spear", dict(leaf, rings=4, spikes=5), 32, 3).data,
+                         sprites.render_weapon("spear", leaf, 32, 3).data)
+        for opts in (dict(rings=5), dict(rings=-1), dict(rings=1.5), dict(spikes=1), dict(spikes=6), dict(spikes=True)):
+            with self.assertRaises(sprites.ShapeError, msg=str(opts)):
+                sprites.render_weapon("spear", dict(STAFF, **opts), 64, 3)
+
+    def test_generated_files_follow_the_sprite_resolution(self):
+        for opts, size in ((dict(shape="crystal_staff"), 64), (dict(shape="orb_staff"), 64),
+                           (dict(shape="crystal_staff", resolution=32), 32), (dict(shape="leaf"), 32)):
+            files, _ = standalone("spear", appearance=opts)
+            main = decode_png(files[res("assets/testmod/textures/item/test_blade.png")].data)
+            gui = decode_png(files[res("assets/testmod/textures/item/test_blade_gui.png")].data)
+            self.assertEqual((main.w, main.h), (size, size), opts)
+            self.assertEqual((gui.w, gui.h), (size // 2, size // 2), opts)
+            self.assertEqual(gui.data, main.downsampled(2).data)
+            model = json.loads(files[res("assets/testmod/models/item/test_blade.json")].data.decode("utf-8"))
+            self.assertEqual(model["loader"], "forge:separate_transforms")  # the texture size never changes the model parent
+            self.assertEqual(model["base"]["parent"], "epicfight:item/spear")
+            self.assertEqual(png_size(files["bossforge/previews/test_blade_weapon.png"].data), (size * 8, size * 8))
+
+    def test_spec_validation_reports_bad_staff_options(self):
+        cases = [
+            (dict(shape="crystal_staff", resolution=16), "resolution", "unknown_value"),
+            (dict(shape="leaf", resolution=64), "resolution", "unknown_value"),
+            (dict(rings=5), "rings", "out_of_range"),
+            (dict(rings=1.5), "rings", "bad_type"),
+            (dict(spikes=1), "spikes", "out_of_range"),
+            (dict(shape="wand"), "shape", "unknown_value"),
+        ]
+        for ap, key, code in cases:
+            errs = []
+            spec.validate_weapon(errs, "/w", weapon_spec("spear", appearance=ap))
+            self.assertEqual([(e.path, e.code) for e in errs], [("/w/appearance/" + key, code)], ap)
+        errs = []
+        spec.validate_weapon(errs, "/w", weapon_spec("spear", appearance=dict(shape="crystal_staff", resolution=64, rings=3, spikes=4)))
+        self.assertEqual(errs, [])
+        errs = []
+        spec.validate_weapon(errs, "/w", weapon_spec("sword", appearance=dict(resolution=32)))
+        self.assertEqual([e.path for e in errs], ["/w/appearance/resolution"])
+
+    def test_staff_is_deterministic_and_follows_the_colours(self):
+        a = sprites.render_weapon("spear", STAFF, 64, 21)
+        self.assertEqual(a.data, sprites.render_weapon("spear", STAFF, 64, 21).data)
+        gold = sprites.render_weapon("spear", dict(STAFF, guard="#ff0000"), 64, 21)
+        reddish = sum(1 for y in range(64) for x in range(64) if gold.get(x, y)[3] == 255 and gold.get(x, y)[0] > gold.get(x, y)[1] + 80)
+        self.assertGreater(reddish, 40)
+        orange = sprites.render_weapon("spear", dict(STAFF, gem="#ff6a1a"), 64, 21)
+        self.assertGreater(sum(1 for y in range(64) for x in range(64)
+                               if orange.get(x, y)[3] == 255 and orange.get(x, y)[0] > 200 and orange.get(x, y)[2] < 120), 25)
+
+    def test_boss_staff_files_match_the_sizes_qa_expects(self):
+        from bossforge_core import qa
+        raw = json.loads(Path(_path.EXAMPLE).read_text(encoding="utf-8"))
+        weapons = [dict(raw["weapons"][0], id="glowing_staff", category="spear", appearance=dict(STAFF, glow=True)),
+                   dict(raw["weapons"][0], id="plain_spear", category="spear", appearance={})]
+        n, files, _ = boss("major", weapons=weapons, main_weapon="glowing_staff")
+        expected = {it["name"]: (it["sprite"], it["gui"]) for it in qa._item_names(n) if it["kind"] == "weapon"}
+        self.assertEqual(expected, {"glowing_staff": (64, 32), "plain_spear": (32, 16)})
+        for name, (size, gui) in expected.items():
+            base = "assets/roundtable/textures/item/" + name
+            self.assertEqual(png_size(files[res(base + ".png")].data), (size, size))
+            self.assertEqual(png_size(files[res(base + "_gui.png")].data), (gui, gui))
+        self.assertEqual(png_size(files["bossforge/previews/king_arthur_weapons.png"].data)[1], 64 * 8)
+
+
 def rotate(rx, ry, rz, v):
     """Independent copy of Minecraft's item rotation (Z, then Y, then X; degrees)."""
     x, y, z = v

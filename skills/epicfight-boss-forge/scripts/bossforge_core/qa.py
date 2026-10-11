@@ -302,6 +302,7 @@ from pathlib import Path
 from . import manifest as _manifest
 from . import spec as _spec
 from .pngio import png_size
+from .sprites import sprite_resolution
 
 _LONG = ("longsword", "greatsword", "tachi", "spear")
 _STRIP = re.compile(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'', re.S)
@@ -319,7 +320,8 @@ def _item_names(n: dict) -> List[dict]:
     items = []
     for w in n["weapons"]:
         long = w["category"] in _LONG
-        items.append({"name": w["id"], "sprite": 32 if long else 16, "gui": 16 if long else None, "kind": "weapon"})
+        size = sprite_resolution(w["category"], w.get("appearance"))
+        items.append({"name": w["id"], "sprite": size, "gui": size // 2 if long else None, "kind": "weapon"})
     items.append({"name": n["id"] + "_essence", "sprite": 16, "gui": None, "kind": "essence"})
     if n["encounter"].get("trigger") == "summon_item":
         items.append({"name": n["id"] + "_sigil", "sprite": 16, "gui": None, "kind": "sigil"})

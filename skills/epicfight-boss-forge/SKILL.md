@@ -50,6 +50,10 @@ Ask only what is missing, in ONE batch, with the host's question tool (omp `ask`
 | how it appears | `encounter.trigger` | tier default |
 | mod target | new (`mod_id`, `mod_name`, `--group`) or existing project path | required |
 
+### The user gives a reference image or character sheet
+
+Treat it as the acceptance test, not as inspiration. Read the image, then write a numbered checklist of every visible feature (proportions, head and hair, face, each garment and its trim colours, back pieces such as wings or capes, footwear, held items, small props, glow accents) and map each item to a spec field (`shape.attachments`, `shape.parts`, `appearance.features`, weapon `appearance`). After every `skin` preview, re-read the reference and the preview together and tick the checklist item by item; list what still differs and fix it by changing the spec or by improving the generator (a missing preset, material or feature is a generator gap to close in `scripts/bossforge_core/`, not a reason to ship a simplified boss). Say plainly which items can only be approximated (an exact imported model is not possible: the boss is boxes on the Epic Fight biped rig, painted by the generator). Only ask the user to approve once the checklist is ticked or the remaining differences are listed. See `references/intake.md` "Reference images".
+
 Size note: Minecraft hitboxes are square, so `size.width` is both width and depth, and `size.height` is the TOTAL height including crown/horns (it sets the mesh `scale`; the hitbox comes from the entity type). With a `shape` block the body is a custom mesh on the EF biped rig; without one it is a stock EF mesh (`biped`, or `iron_golem` for wide weaponless brutes via `body.template`).
 
 ## Workflow (copy this checklist and tick it)
@@ -128,4 +132,4 @@ Global flags: `--cache-dir DIR` (default `$BOSSFORGE_CACHE` or `~/.cache/epicfig
 | `references/qa.md` | verification checklist and in-game checks |
 | `references/sources.md` | source URLs |
 
-Worked example: `assets/examples/king-arthur/boss.json` (major tier, custom knight shape with crown, tabard, cape and kite shield, longsword, three phases).
+Worked examples: `assets/examples/king-arthur/boss.json` (major tier, custom knight shape with crown, tabard, cape and kite shield, longsword, three phases) and `assets/examples/nightingale/boss.json` (a complex character built from a reference sheet: `seraph` wings, `hairdo`, `ribbons`, `pouch`, slit robe with `filigree`/`gradient`/`repaint` painting, anime face, 64px `crystal_staff`; copy its structure for any detailed humanoid).

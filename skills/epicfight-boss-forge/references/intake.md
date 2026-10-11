@@ -45,7 +45,13 @@ Map the description to a silhouette first (`bossforge list silhouettes`), then p
 | "insect", "mantis", "spider-like" | `insectoid`: `extra_arms`, mandibles |
 | "horns", "antlers" | `horns` (curved straight ram antlers demon bull) |
 | "cape", "cloak" | `cape` (short long tattered) |
-| "wings" | `wings` (bat feathered angel skeletal flame; `spread` 10-80); static, they do not flap |
+| "wings" | `wings` (bat feathered angel seraph skeletal flame; `spread` 10-80); static, they do not flap. `seraph` = tall raised angel wings as one dense fan-shaped gradient sail (white top, lavender, violet tips): `spread` ~30, `color` white, `accent` lavender, `tip` violet; add a painter `gradient` feature on `box:wings_f*` for a stronger fade |
+| "angel", "healer", "celestial", "feathered wings" | `caster` with `remove` hood/halo/orbs/cape, `wings` seraph `spread` 30, `skirt` robe `slit`+`hem`+`arm_clear` (centre panel + side slits + light hem layer, hands stay visible), `pouch` `arm_clear`, `pauldrons` layered `scale` 0.75, `greaves` sabaton `material` silk + `cuff` + `sole`, `hairdo`, `ribbons` all, `pouch`; raise `size.height` ~15% because the wings add height |
+| "hair in a bun", "ponytail", "braid", "bangs", "side locks", "hair ribbons", "hair pins" | `hairdo` (`style` bun twin_buns ponytail braid; `bangs`, `locks`, `ribbon_loops`, `pins`); hair colour is the palette `hair` |
+| "long ribbons", "streamers", "trailing sashes" | `ribbons` (`style` wrist hem back all; `length` 0.5-2.0), white `color` + pale blue `accent` |
+| "potion pouch", "vials", "belt bag" | `pouch` (`side`, `vials` 0-4, `colors` list, `belt`) |
+| "slit skirt", "open robe front", "tabard panel on the skirt", "layered hem" | `skirt` with `slit: true` (centre panel + side slits), `panel: true` (panel only) and/or `hem: true`; paint the panel via region `box:skirt_fp*` |
+| "soft boots with a cuff" | `greaves` `style` sabaton, `material` silk, `cuff: true` (`cuff_color`), `sole: true` |
 | "tail" | `tail` (lizard spiked whip club) |
 | "shield" | `shield` (round kite tower) on the left forearm |
 | "floating orbs / shards / halo" | `orbs`, `halo` |
@@ -119,3 +125,7 @@ Custom attack chains: `{"series":"custom","animations":[{"animation":"epicfight:
 ## Lore expansion rule
 
 From a one-line concept write: `summary` (1 sentence), `backstory` (2-3 sentences), `description` (what the player sees), `personality`, `death_message`. Keep each under 1200 characters. Show them to the user and wait for approval before generating.
+
+## Reference images
+
+When the user pastes a character sheet or concept image: (1) read it and list every visible feature as a checklist (silhouette and proportions; head: hair style, bangs, bun, pins, face, eye colour; each garment with trim and accent colours and ornament patterns; back pieces: wings or cape with colour gradient; footwear; held item shape; small props such as pouches, vials, ribbons; glow accents); (2) map each line to a spec field; (3) render `skin` and compare the preview to the reference feature by feature, from front, side and back; (4) when a feature has no generator support, add it to the generator (new preset, feature, material or weapon shape) instead of dropping it; (5) report the checklist with what matches and what is only approximated. An exact copy of an arbitrary model is not possible: the boss is boxes skinned to the Epic Fight biped rig and painted procedurally.

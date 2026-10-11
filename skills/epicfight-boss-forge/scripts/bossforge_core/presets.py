@@ -23,6 +23,9 @@ Positions are written for the character's RIGHT side (+x) with `mirror: true`; i
 (horns, tails, wing struts, tusks) are chains of tapered boxes built by `_Ctx.path`: segment i runs from point
 i to point i+1, its top face is scaled to the width at point i+1 (taper) and its axis is aligned with the segment
 by the Euler angles `_orient` (R = Rz*Ry*Rx, rx = asin(dz), rz = atan2(-dx, dy)).
+Parts with a fixed look inside a preset (ribbon loops, pins, vials, the skirt's hem layer) use extra roles
+(`_preset(..., extra=...)`); colour parameters of type `colors` are lists (pouch vials). Colours that are blended
+(seraph feather gradient) blend only `#rrggbb` values: presets know no palette, a palette key snaps to the nearest stop.
 """
 from __future__ import annotations
 
@@ -35,13 +38,13 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from . import DATA_DIR
 from . import spec as _spec
-from .colors import is_hex
+from .colors import hex_to_rgb, is_hex, mix, rgb_to_hex
 
 Vec = Tuple[float, float, float]
 
 ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 SCALE_RANGE = (0.5, 2.5)
-MAX_BOXES = 40  # per attachment, after mirror expansion
+MAX_BOXES = 120  # per attachment, after mirror expansion
 _SILHOUETTE_BY_ARCHETYPE = {
     "knight": "knight", "undead": "skeletal_king", "beast": "beast", "demon": "fiend",
     "elemental": "colossus", "golem": "colossus", "wraith": "wraith", "cultist": "caster",
@@ -171,11 +174,18 @@ def _bool(default):
     return {"type": "bool", "default": bool(default)}
 
 
+def _colors(default, max_len: int):
+    return {"type": "colors", "default": list(default), "max": int(max_len)}
+
+
 COMMON_PARAMS = ("id", "scale", "color", "accent", "material")
 PRESETS: Dict[str, dict] = {}
 _FUNCS: Dict[str, Callable] = {}
-_ROLES: Dict[str, Dict[str, Tuple[str, str, str]]] = {}
-# (material, color, accent) triples; `main` is overridable by the attachment's material/color/accent
+_ROLES: Dict[str, Dict[str, Tuple[Optional[str], str, str]]] = {}
+_FOLLOW: Dict[str, Tuple[str, ...]] = {}
+# (material, color, accent) triples; `main` is overridable by the attachment's material/color/accent. A role whose
+# material is None uses the main material (with its override); a role named in a preset's `follow` keeps its own
+# material until the attachment sets `material`, which then reaches that role too.
 _GLOBAL_ROLES = {
     "glow": ("plate_gold", "eyes", "eyes"),
     "dark": ("leather", "#1a1418", "#1a1418"),
@@ -188,7 +198,8 @@ _GLOBAL_ROLES = {
 
 
 def _preset(name: str, description: str, params: Dict[str, dict], main: Tuple[str, str, str],
-            trim: Optional[Tuple[str, str, str]] = None):
+            trim: Optional[Tuple[str, str, str]] = None, extra: Optional[Dict[str, Tuple[Optional[str], str, str]]] = None,
+            follow: Sequence[str] = ()):
     def deco(fn):
         ordered = dict(params)
         ordered["id"] = {"type": "id", "default": name, "pattern": ID_RE.pattern}
@@ -200,7 +211,9 @@ def _preset(name: str, description: str, params: Dict[str, dict], main: Tuple[st
         roles = {"main": main}
         if trim is not None:
             roles["trim"] = trim
+        roles.update(extra or {})  # fixed-look parts of the preset (not recolored by color/accent)
         _ROLES[name] = roles
+        _FOLLOW[name] = tuple(follow)
         _FUNCS[name] = fn
         return fn
     return deco
@@ -213,12 +226,14 @@ class _Ctx:
         self.name = name
         self.b = body
         schema = PRESETS[name]["params"]
+        self.given = set(att)  # parameters the attachment really sets (defaults are not "given")
         self.p = {k: att.get(k, v["default"]) for k, v in schema.items() if k not in COMMON_PARAMS}
         self.s = float(att.get("scale", 1.0))
         self.hu = body.he / 0.5
         self.over = {k: att.get(k) for k in ("material", "color", "accent")}
         self.roles = dict(_GLOBAL_ROLES)
         self.roles.update(_ROLES[name])
+        self.follow = _FOLLOW.get(name, ())
 
     def style(self, role: str) -> Tuple[str, str, str]:
         m, col, acc = self.roles[role]
@@ -226,12 +241,17 @@ class _Ctx:
             m = self.over["material"] or m
             col = self.over["color"] or col
             acc = self.over["accent"] or acc
-        elif role == "trim" and self.over["accent"]:
-            col = acc = self.over["accent"]
+        else:
+            if m is None:
+                m = self.over["material"] or self.roles["main"][0]
+            elif role in self.follow and self.over["material"]:
+                m = self.over["material"]
+            if role == "trim" and self.over["accent"]:
+                col = acc = self.over["accent"]
         return m, col, acc
 
     def box(self, lid: str, bone: str, cen, size, role: str = "main", taper=None, rotate=None, pivot=None,
-            mirror: bool = False) -> dict:
+            mirror: bool = False, density: Optional[float] = None) -> dict:
         w, h, d = (max(0.01, float(v)) for v in size)
         out: Dict[str, Any] = {
             "id": lid, "bone": bone,
@@ -246,12 +266,14 @@ class _Ctx:
             out["pivot"] = [_r(v) for v in pivot]
         if mirror:
             out["mirror"] = True
+        if density is not None and abs(density - 1.0) > 1e-6:
+            out["density"] = _r(density)
         out["material"], out["color"], out["accent"] = self.style(role)
         return out
 
     def path(self, prefix: str, bone: str, pts: Sequence[Vec], widths: Sequence[float],
              depths: Optional[Sequence[float]] = None, role: str = "main", suffix: str = "",
-             mirror: bool = False, overlap: float = 0.08) -> List[dict]:
+             mirror: bool = False, overlap: float = 0.08, density: Optional[float] = None) -> List[dict]:
         """One tapered box per consecutive point pair (ids `prefix` + index + `suffix`); `widths[i]` and
         `depths[i]` are the thickness at point i (width = local x, depth = local z of the box)."""
         out: List[dict] = []
@@ -268,7 +290,7 @@ class _Ctx:
             w0, w1 = max(widths[i], 0.01), max(widths[i + 1], 0.01)
             d0, d1 = max(depths[i], 0.01), max(depths[i + 1], 0.01)
             out.append(self.box("%s%d%s" % (prefix, i, suffix), bone, cen, (w0, ext, d0), role=role,
-                                taper=(w1 / w0, d1 / d0), rotate=_orient(d), mirror=mirror))
+                                taper=(w1 / w0, d1 / d0), rotate=_orient(d), mirror=mirror, density=density))
         return out
 
     def walk(self, p0: Vec, dirs: Sequence[Vec], lengths: Sequence[float]) -> List[Vec]:
@@ -701,45 +723,174 @@ def _cape(c: _Ctx) -> List[dict]:
     return out
 
 
-@_preset("skirt", "Tabard, robe or kilt hanging from the waist on the thigh bones, so the legs stay free.",
-         {"style": _enum("robe", ("tabard", "robe", "kilt")), "trim": _bool(True)},
-         main=("cloth", "secondary", "accent"))
+@_preset("skirt", "Tabard, robe or kilt hanging from the waist on the thigh bones, so the legs stay free. `slit` cuts two slits "
+                  "into the front, one on each side of a centre front panel (ids `fp*`, a proud cream tabard panel), from the "
+                  "hem trim up to the thigh so the legs show in them; `panel` adds the centre panel without slits; `hem` adds "
+                  "a second, lighter and longer layer (colour `hem_color`, material `lace`, own thin trim) under "
+                  "the hem trim. `arm_clear` keeps the skirt (and its belt band) inside the inner edge of the arms down to "
+                  "the hands, so the sleeves, cuffs and hands stay visible and nothing clips through a swinging arm; it "
+                  "flares outwards only below the hands.",
+         {"style": _enum("robe", ("tabard", "robe", "kilt")), "trim": _bool(True), "slit": _bool(False), "panel": _bool(False),
+          "hem": _bool(False), "hem_color": {"type": "color", "default": "#e8eefa"}, "arm_clear": _bool(False)},
+         main=("cloth", "secondary", "accent"),
+         extra={"under": ("lace", "#e8eefa", "#e8eefa"), "tabard": (None, "#f2ead3", "#d4aa32")},
+         follow=("trim", "under"))
 def _skirt(c: _Ctx) -> List[dict]:
     b, s = c.b, c.s
     st = c.p["style"]
+    slit = bool(c.p["slit"])
+    has_fp = bool(c.p["panel"]) or slit
+    arm_clear = bool(c.p["arm_clear"])
     ytop = b.abd_bot + 0.04
     hem = max(0.03, ytop - (ytop - {"kilt": 0.5, "tabard": 0.26, "robe": 0.06}[st]) * s)
     ys = [ytop] + ([b.knee] if hem < b.knee - 0.05 else []) + [hem]
     gap, th = 0.03, 0.04
+    fac = 0.62 if st == "tabard" else 1.0
     flare = {"kilt": 0.0, "tabard": 0.08, "robe": 0.2}[st] * s
     x0 = max(b.leg_cx + b.leg_t / 2.0, b.pw) + 0.045
     f0 = b.front_z(hem, ytop, -x0, x0, arms=False) - gap - th / 2.0
     b0 = b.back_z(hem, ytop, -x0, x0, arms=False) + gap + th / 2.0
-    xs = [x0 + flare * (ytop - y) for y in ys]
-    fs = [f0 - 0.5 * flare * (ytop - y) for y in ys]
-    bs = [b0 + 0.5 * flare * (ytop - y) for y in ys]
-    bones = ["thigh_r" if ys[i + 1] >= b.knee - 1e-6 else "shin_r" for i in range(len(ys) - 1)]  # a segment below the knee follows the shin
-    inner = 0.005
+    # arm_clear: above the hands the skirt stays inside the arms' inner edge (the chest edge, minus 1 cm); it flares from
+    # the hands' height (a little above the lowest point of the fists) down to the hem
+    x_arm = b.arm_cx - b.arm_t / 2.0 - 0.01
+    yc = min(ytop, b.fist_bot - 0.08)
+    if arm_clear and hem + 0.05 < yc < ytop - 0.03 and all(abs(y - yc) > 0.03 for y in ys):
+        ys = sorted(ys + [yc], reverse=True)
+
+    def xr(y: float) -> float:
+        """Half width of the front/back panels at height y, before the tabard factor."""
+        r = x0 + flare * (ytop - y)
+        if not arm_clear:
+            return r
+        lim = x_arm / fac
+        if y >= yc - 1e-9 or hem >= yc - 0.05:
+            return min(r, lim)
+        r_c = min(x0 + flare * (ytop - yc), lim)
+        r_h = x0 + flare * (ytop - hem)
+        return r_c + (r_h - r_c) * (yc - y) / (yc - hem)
+
+    def fz(y: float) -> float:
+        return f0 - 0.5 * flare * (ytop - y)
+
+    def bz(y: float) -> float:
+        return b0 + 0.5 * flare * (ytop - y)
+
+    y_s: Optional[float] = None  # the slits run from the hem trim up to this height
+    if slit:
+        y_s = hem + max(0.06, min(0.6 * (ytop - hem), ytop - hem - 0.08))
+        if y_s < ytop - 0.02:
+            if arm_clear and yc in ys[1:-1] and abs(y_s - yc) < 0.15:
+                y_s = yc  # the slits open where the skirt starts to flare
+            y_s = next((y for y in ys[1:-1] if abs(y - y_s) < 0.05), y_s)  # reuse a joint when it is close
+            if y_s not in ys:
+                ys = sorted(ys + [y_s], reverse=True)
+        else:
+            y_s = None
+    xs = [xr(y) for y in ys]
+    fs = [fz(y) for y in ys]
+    bs = [bz(y) for y in ys]
+    n = len(ys) - 1
+    bones = ["thigh_r" if ys[i + 1] >= b.knee - 1e-6 else "shin_r" for i in range(n)]  # a segment below the knee follows the shin
+    inner = 0.0  # mirrored halves meet at x = 0 (a gap would show as a dark line)
+    reach = [x * fac for x in xs]
+    # centre panel half width and the slit's outer edge (x of the right side; the left is mirrored)
+    ph = [0.40 * r for r in reach]
+    xo = [0.40 * r + max(0.05, 0.2 * r) for r in reach]
+    seams = [(xo[i], xo[i + 1]) if y_s is not None and ys[i] <= y_s + 1e-6 else (inner, inner) for i in range(n)]
     out: List[dict] = []
 
-    def panel(prefix: str, centers, widths, depths, zs):
-        pts = [(centers[i], ys[i], zs[i]) for i in range(len(ys))]
-        for i in range(len(ys) - 1):
-            out.extend(c.path("%s%d_" % (prefix, i), bones[i], pts[i:i + 2], widths[i:i + 2], depths[i:i + 2], suffix="_r", mirror=True, overlap=0.03))
-        if c.p["trim"]:
-            q0, q1 = pts[-2], pts[-1]
+    def panel(prefix: str, zs, seam_of):
+        for i in range(n):
+            xa, xb = seam_of[i]
+            wt, wb = reach[i] - xa, reach[i + 1] - xb
+            pts = [(xa + wt / 2.0, ys[i], zs[i]), (xb + wb / 2.0, ys[i + 1], zs[i + 1])]
+            out.extend(c.path("%s%d_" % (prefix, i), bones[i], pts, [wt, wb], [th, th], suffix="_r", mirror=True, overlap=0.03))
+        if c.p["trim"]:  # the trim runs across the whole width, also under the slits: the panels meet at the hem
+            q0 = (inner + (reach[-2] - inner) / 2.0, ys[-2], zs[-2])
+            q1 = (inner + (reach[-1] - inner) / 2.0, ys[-1], zs[-1])
             tt = 0.06 / max(_len(_sub(q1, q0)), 1e-6)
-            out.extend(c.path("%st_" % prefix, bones[-1], [_lerp(q1, q0, tt), q1], [widths[-1] + 0.014] * 2, [depths[-1] + 0.014] * 2,
+            out.extend(c.path("%st_" % prefix, bones[-1], [_lerp(q1, q0, tt), q1], [reach[-1] - inner + 0.014] * 2, [th + 0.014] * 2,
                               role="trim", suffix="_r", mirror=True, overlap=0))
 
-    reach = [x * (0.62 if st == "tabard" else 1.0) for x in xs]
-    wid = [r - inner for r in reach]
-    cen = [inner + w / 2.0 for w in wid]
-    panel("fr", cen, wid, [th] * len(ys), fs)
-    panel("bk", cen, wid, [th] * len(ys), bs)
+    def pt_side(y: float) -> Vec:
+        return (xr(y) + th / 2.0, y, (fz(y) + bz(y)) / 2.0)
+
+    panel("fr", fs, seams)
+    panel("bk", bs, [(inner, inner)] * n)
+    if has_fp:  # centre front panel, 1 cm proud of the front; it stops above the hem trim so the trim stays continuous
+        for i in range(n):
+            top = (inner + (ph[i] - inner) / 2.0, ys[i], fs[i])
+            bot = (inner + (ph[i + 1] - inner) / 2.0, ys[i + 1], fs[i + 1])
+            w0, w1 = ph[i] - inner, ph[i + 1] - inner
+            if i == n - 1 and c.p["trim"]:
+                tt = 0.06 / max(_len(_sub(bot, top)), 1e-6)
+                bot = _lerp(bot, top, tt)
+                w1 = w1 + (w0 - w1) * tt
+            out.extend(c.path("fp%d_" % i, bones[i], [top, bot], [w0, w1], [th + 0.02] * 2, role="tabard", suffix="_r", mirror=True, overlap=0))
     if st != "tabard":
-        panel("sd", [x + th / 2.0 for x in xs], [th] * len(ys), [bs[i] - fs[i] for i in range(len(ys))], [(fs[i] + bs[i]) / 2.0 for i in range(len(ys))])
-    out.append(c.box("band", "root", (0, (ytop + b.hip) / 2 + 0.0275, b.cz), (2 * (x0 - 0.01), ytop - b.hip + 0.045, 2 * (max(b.ad, b.leg_t / 2.0) + 0.035)), role="trim"))
+        sd_ys = list(ys)
+        if arm_clear:
+            # side panels only where the skirt stands clear of the thighs (and so of the arms): from the height where its
+            # half width reaches the unconstrained top width, down to the hem
+            if xr(ytop) >= x0:
+                y_sd: Optional[float] = ytop
+            elif xr(hem) < x0:
+                y_sd = None
+            else:
+                lo, hi = hem, ytop  # xr(lo) >= x0 > xr(hi): the skirt is wider lower down
+                for _ in range(40):
+                    mid = (lo + hi) / 2.0
+                    lo, hi = (lo, mid) if xr(mid) < x0 else (mid, hi)
+                y_sd = lo
+            if y_sd is not None:
+                y_sd = min(y_sd, yc)  # never in the hands' zone, even on a body whose arms hang far from the thighs
+            sd_ys = [] if y_sd is None or y_sd - hem < 0.06 else [y_sd] + [y for y in ys if y < y_sd - 1e-6]
+        for i in range(len(sd_ys) - 1):
+            q0, q1 = pt_side(sd_ys[i]), pt_side(sd_ys[i + 1])
+            mid_y = (sd_ys[i] + sd_ys[i + 1]) / 2.0
+            k = max(j for j in range(n) if ys[j] >= mid_y - 1e-9)  # the front panel segment this piece belongs to
+            out.extend(c.path("sd%d_" % k, bones[k], [q0, q1], [th, th], [bz(sd_ys[i]) - fz(sd_ys[i]), bz(sd_ys[i + 1]) - fz(sd_ys[i + 1])],
+                              suffix="_r", mirror=True, overlap=0.03))
+        if c.p["trim"] and len(sd_ys) >= 2:
+            q0, q1 = pt_side(sd_ys[-2]), pt_side(sd_ys[-1])
+            tt = 0.06 / max(_len(_sub(q1, q0)), 1e-6)
+            out.extend(c.path("sdt_", bones[-1], [_lerp(q1, q0, tt), q1], [th + 0.014] * 2, [bz(sd_ys[-1]) - fz(sd_ys[-1]) + 0.014] * 2,
+                              role="trim", suffix="_r", mirror=True, overlap=0))
+    if c.p["hem"]:
+        # a lighter, longer layer under the trim: it continues the last segment's line downwards and sticks out of it by
+        # 6 mm on every side, so the two layers never share a face; its own thin trim closes the lower edge
+        ya = hem + 0.015
+        yb = max(0.02, hem - min(0.2, max(0.09, 0.16 * (ytop - hem) + 0.04)))
+        if ya - yb >= 0.05:
+            ext = 0.012
+
+            def row(y: float):
+                return (y, xr(y) * fac + ext / 2.0, fz(y), bz(y))
+
+            rows = [row(ya), row(yb)]
+            th_e = 0.035 if c.p["trim"] else 0.0
+            edge = row(yb + th_e)
+            made: List[dict] = []
+            for pre, zi in (("hf", 2), ("hb", 3)):
+                pts = [(inner + (r[1] - inner) / 2.0, r[0], r[zi]) for r in rows]
+                made += c.path(pre, bones[-1], pts, [r[1] - inner for r in rows], [th + ext] * 2, role="under", suffix="_r", mirror=True, overlap=0)
+            if st != "tabard" and (not arm_clear or sd_ys):
+                pts = [(xr(r[0]) + th / 2.0, r[0], (r[2] + r[3]) / 2.0) for r in rows]
+                made += c.path("hs", bones[-1], pts, [th + ext] * 2, [r[3] - r[2] + ext for r in rows], role="under", suffix="_r", mirror=True, overlap=0)
+            for bx in made:
+                bx["color"] = bx["accent"] = c.p["hem_color"]
+            out += made
+            if th_e:
+                for pre, zi in (("hft", 2), ("hbt", 3)):
+                    pts = [(inner + (r[1] - inner) / 2.0, r[0], r[zi]) for r in (edge, rows[1])]
+                    out += c.path(pre, bones[-1], pts, [r[1] - inner + 0.006 for r in (edge, rows[1])], [th + ext + 0.006] * 2, role="trim",
+                                  suffix="_r", mirror=True, overlap=0)
+                if st != "tabard" and (not arm_clear or sd_ys):
+                    pts = [(xr(r[0]) + th / 2.0, r[0], (r[2] + r[3]) / 2.0) for r in (edge, rows[1])]
+                    out += c.path("hst", bones[-1], pts, [th + ext + 0.006] * 2, [r[3] - r[2] + ext + 0.006 for r in (edge, rows[1])],
+                                  role="trim", suffix="_r", mirror=True, overlap=0)
+    band_x = min(x0 - 0.01, x_arm) if arm_clear else x0 - 0.01
+    out.append(c.box("band", "root", (0, (ytop + b.hip) / 2 + 0.0275, b.cz), (2 * band_x, ytop - b.hip + 0.045, 2 * (max(b.ad, b.leg_t / 2.0) + 0.035)), role="trim"))
     return out
 
 
@@ -783,9 +934,120 @@ def _tail(c: _Ctx) -> List[dict]:
     return out
 
 
+# --------------------------------------------------------------------------- seraph wings (dense feathered sail)
+_SERAPH_ROWS = 9   # feather rows from the front of the wing to the back; the middle row is the longest
+_SERAPH_PER_ROW = 5
+_SERAPH_STAIRS = 7  # stacked blocks of the leading edge
+# (t along the strut 0..1, how far below the wing root the tips of the longest row hang, blocks at scale 1.0)
+_SERAPH_TIPS = ((0.0, 0.30), (0.2, 0.48), (0.5, 0.70), (0.78, 0.74), (1.0, 0.54))
+_SERAPH_TIP_DEFAULT = "#aa98f2"
+
+
+def _table(rows: Sequence[Tuple[float, float]], t: float) -> float:
+    """Piecewise-linear lookup of `t` in sorted (t, value) rows (clamped at both ends)."""
+    if t <= rows[0][0]:
+        return rows[0][1]
+    for (t0, v0), (t1, v1) in zip(rows, rows[1:]):
+        if t <= t1:
+            return v0 + (v1 - v0) * (t - t0) / (t1 - t0)
+    return rows[-1][1]
+
+
+def _mix_ref(a: str, b: str, t: float) -> str:
+    """Blend two colour references. #rrggbb blends; palette keys cannot (presets know no palette), they snap."""
+    if is_hex(a) and is_hex(b):
+        return rgb_to_hex(mix(hex_to_rgb(a), hex_to_rgb(b), t))
+    return a if t < 0.5 else b
+
+
+def _gradient(stops: Sequence[str], u: float) -> str:
+    """Colour at `u` (0..1) along the evenly spaced `stops`."""
+    n = len(stops) - 1
+    x = _clamp(u, 0.0, 1.0) * n
+    i = min(int(x), n - 1)
+    return _mix_ref(stops[i], stops[i + 1], x - i)
+
+
+def _seraph(c: _Ctx, back: float) -> List[dict]:
+    """Raised angel wings as ONE dense sail: a thick stair-stepped leading edge rising up and out from the shoulder
+    blades (angle `spread` from vertical), and 9 layered rows of broad overlapping feathers fanning out from it (rows
+    offset by half a feather so no gap stays open; inner feathers hang straight and short, outer ones are longer and
+    splay outwards; the lower edge is jagged). The row index drives a 3-stop gradient: the outer rows (seen from the
+    front and from the back) take `color`, the middle rows `accent`, the longest middle row `tip`; rows are ordered so
+    that the visible band below each row is a little longer and a little more tinted than the one above."""
+    b, s = c.b, c.s
+    sq = math.sqrt(s)
+    sp = float(c.p["spread"])
+    white = c.over["color"] or "#f4f6ff"
+    lilac = c.over["accent"] or "#ddd3ff"
+    tip = c.p["tip"]
+    if "tip" not in c.given and is_hex(lilac):
+        tip = _mix_ref(lilac, "#8a70e8", 0.55)  # a deeper violet of the accent
+    stops = [white, lilac, tip]
+    mat = c.over["material"]  # an override reaches every box; by default the feathers use their own vane material
+    hw = b.he / 2.0
+    xr, yr = max(0.3 * b.cw + 0.03, 0.12), b.head_bot - 0.18 * s
+    zc = back + 0.09   # the wing plane starts just behind the back and sweeps backwards with the distance
+    kz = 0.3
+    # strut: from the shoulder blade out to the side of the head (so it never cuts through the skull), then up and out
+    a1, a2 = math.radians(sp), math.radians(0.85 * sp)
+    q1 = (hw + 0.13 * s + 0.01, b.head_bot - 0.14 * s)  # the blocks up to here stay below the head
+    q2 = (q1[0] + 0.52 * s * math.sin(a1), q1[1] + 0.52 * s * math.cos(a1))
+    q3 = (q2[0] + 0.62 * s * math.sin(a2), q2[1] + 0.62 * s * math.cos(a2))
+    poly = [(xr, yr), q1, q2, q3]
+    lens = [math.hypot(poly[i + 1][0] - poly[i][0], poly[i + 1][1] - poly[i][1]) for i in range(3)]
+    total = sum(lens)
+    splay = min(0.55 * sp, 26.0)  # how far the outermost feathers point outwards (degrees from vertical)
+
+    def strut(t: float) -> Vec:
+        d = _clamp(t, 0.0, 1.0) * total
+        i = 0
+        while i < 2 and d > lens[i]:
+            d -= lens[i]
+            i += 1
+        u = d / lens[i]
+        x = poly[i][0] + (poly[i + 1][0] - poly[i][0]) * u
+        y = poly[i][1] + (poly[i + 1][1] - poly[i][1]) * u
+        return (x, y, zc + kz * (x - xr))
+
+    out: List[dict] = []
+    for j in range(_SERAPH_STAIRS):
+        u = j / (_SERAPH_STAIRS - 1.0)
+        w = (0.24 - 0.04 * u) * s
+        out.append(c.box("st%d_r" % j, "chest", strut(u), (w, w, 0.14 * sq * (1.0 - 0.25 * u)), mirror=True, density=0.7))
+    mid = (_SERAPH_ROWS - 1) / 2.0
+    dz, th = 0.016 * sq, 0.024 * sq
+    for k in range(_SERAPH_ROWS):
+        u_row = 1.0 - abs(k - mid) / mid
+        keep = 0.40 + 0.60 * u_row  # share of the full length: the outer rows are short, the middle one longest
+        for j in range(_SERAPH_PER_ROW):
+            t = 0.05 + 0.95 * (j + 0.5 * (k % 2)) / (_SERAPH_PER_ROW - 0.5)
+            ax, ay, az = strut(t)
+            az += (k - mid) * dz
+            ang = math.radians(2.0 + splay * t ** 1.1 + 1.6 * math.sin(1.7 * j + 2.3 * k + 0.5))
+            tip_y = yr - _table(_SERAPH_TIPS, t) * s
+            end_y = max(0.03, ay - (ay - tip_y) * keep + 0.05 * s * math.sin(2.9 * j + 1.3 * k + 1.0))
+            ln = max(0.12 * s, (ay - end_y) / math.cos(ang))
+            d = _norm((math.sin(ang), -math.cos(ang), kz * math.sin(ang)))
+            a = (ax, ay, az)
+            out += c.path("f%d_%d_" % (k, j), "chest", [a, _add(a, _mul(d, ln))], [0.32 * s, 0.19 * s], [th, th],
+                          suffix="_r", mirror=True, overlap=0.0, density=0.6)
+            # neighbouring feathers differ slightly in tone so the single feathers stay readable inside the sail
+            out[-1]["color"] = out[-1]["accent"] = _gradient(stops, u_row + 0.06 * (((j + k) % 2) - 0.5) * (1.0 if u_row < 1.0 else 0.5))
+    for bx in out:
+        stem = bx["id"].startswith("st")
+        bx["material"] = mat or ("silk" if stem else "silk_feather")
+        if stem:
+            bx["color"] = bx["accent"] = white
+    return out
+
+
 # --------------------------------------------------------------------------- wings, orbs, extra limbs
-@_preset("wings", "Pair of wings on the upper back; `spread` (10-80 degrees) tilts the main strut away from vertical.",
-         {"style": _enum("bat", ("bat", "feathered", "angel", "skeletal", "flame")), "spread": _float(45.0, 10.0, 80.0)},
+@_preset("wings", "Pair of wings on the upper back; `spread` (10-80 degrees) tilts the main strut away from vertical. "
+                  "`seraph` = raised angel wings as one dense fan-shaped sail (stair-stepped leading edge at `spread` degrees from "
+                  "vertical, 9 layered feather rows): `color` white, `accent` lavender, `tip` violet; use spread ~30.",
+         {"style": _enum("bat", ("bat", "feathered", "angel", "seraph", "skeletal", "flame")), "spread": _float(45.0, 10.0, 80.0),
+          "tip": {"type": "color", "default": _SERAPH_TIP_DEFAULT}},
          main=("leather", "secondary", "accent"))
 def _wings(c: _Ctx) -> List[dict]:
     b, s = c.b, c.s
@@ -812,6 +1074,8 @@ def _wings(c: _Ctx) -> List[dict]:
                     bx["color"] = bx["accent"] = c.style("trim")[1]
             out += tongue
         return out
+    if st == "seraph":
+        return _seraph(c, back)
     arm_role = "bone" if st in ("bat", "skeletal") else "trim"
     out += c.path("arm_", "chest", [root, elbow, wrist], [0.11 * s, 0.09 * s, 0.07 * s], [0.07 * s] * 3, role=arm_role, suffix=R, mirror=True, overlap=0.1)
     base_a = sp + 25.0
@@ -844,7 +1108,7 @@ def _wings(c: _Ctx) -> List[dict]:
             fe = c.path("%s%d_" % (name, j), "chest", [origin, at(origin, a, ln * (1.0 - 0.04 * j))], [w, w * 0.45], [0.035 * s] * 2, suffix=R, mirror=True, overlap=0)
             if st == "angel":
                 for bx in fe:
-                    bx["material"], bx["color"] = "cloth", "#efe9dc"
+                    bx["material"], bx["color"] = "cloth", c.over["color"] or "#efe9dc"
             out += fe
     return out
 
@@ -1066,19 +1330,31 @@ def _gauntlets(c: _Ctx) -> List[dict]:
     return out
 
 
-@_preset("greaves", "Shin armor with knee plates; optionally spiked or with heavy boots.",
-         {"style": _enum("plate", ("plate", "spiked", "sabaton"))},
-         main=("plate_steel", "primary", "accent"))
+@_preset("greaves", "Shin armor with knee plates; optionally spiked or with heavy boots. `cuff` adds a coloured band around the top "
+                    "of the shin (for `sabaton` it replaces the knee plate: smooth boots with a cuff), `sole` a light sole under "
+                    "the `sabaton` boot. A `material` override reaches every box (try `silk` or `leather` for soft boots).",
+         {"style": _enum("plate", ("plate", "spiked", "sabaton")), "cuff": _bool(False),
+          "cuff_color": {"type": "color", "default": "secondary"}, "sole": _bool(False)},
+         main=("plate_steel", "primary", "accent"),
+         extra={"cuffband": (None, "secondary", "secondary"), "sole": (None, "#e6ebf5", "#e6ebf5")},
+         follow=("trim",))
 def _greaves(c: _Ctx) -> List[dict]:
     b, s = c.b, c.s
     st = c.p["style"]
     t = (b.leg_t + 0.06) * s
     y0, y1 = (0.12 if st == "sabaton" else 0.06), b.knee - 0.01
     kz = b.cz - t / 2.0
+    cuff = bool(c.p["cuff"])
     out: List[dict] = [
         c.box("shin_r", "shin_r", (b.leg_cx, (y0 + y1) / 2, b.cz), (t, y1 - y0, t), taper=(1.1, 1.1), mirror=True),
-        c.box("knee_r", "shin_r", (b.leg_cx, b.knee + 0.01, kz - 0.015), (b.leg_t * 0.85 * s, 0.13 * s, 0.07 * s), role="trim", mirror=True),
     ]
+    if not (cuff and st == "sabaton"):
+        out.append(c.box("knee_r", "shin_r", (b.leg_cx, b.knee + 0.01, kz - 0.015), (b.leg_t * 0.85 * s, 0.13 * s, 0.07 * s), role="trim", mirror=True))
+    if cuff:
+        ch = 0.075 * s
+        band = c.box("cuff_r", "shin_r", (b.leg_cx, y1 - ch / 2.0 + 0.005, b.cz), (t * 1.1 + 0.02, ch, t * 1.1 + 0.02), role="cuffband", mirror=True)
+        band["color"] = band["accent"] = c.p["cuff_color"]
+        out.append(band)
     if st == "spiked":
         out += c.path("ks_", "shin_r", c.walk((b.leg_cx, b.knee + 0.02, kz - 0.04), [(0.15, 0.35, -1.0)], [0.22 * s]), [0.11 * s, 0.012 * s], suffix="_r", mirror=True)
         out += c.path("sp_", "shin_r", c.walk((b.leg_cx, 0.14, b.cz + t / 2 - 0.02), [(0.0, 0.5, 1.0)], [0.16 * s]), [0.08 * s, 0.01 * s], suffix="_r", mirror=True)
@@ -1086,6 +1362,9 @@ def _greaves(c: _Ctx) -> List[dict]:
         bw = (b.leg_t + 0.08) * s
         out.append(c.box("boot_r", "shin_r", (b.leg_cx, 0.06, b.cz - 0.06 * s), (bw, 0.12, b.leg_t + 0.18 * s), mirror=True))
         out.append(c.box("toe_r", "shin_r", (b.leg_cx, 0.045, b.cz - b.leg_t / 2 - 0.12 * s), (bw * 0.8, 0.09, 0.08 * s), taper=(0.7, 1.0), role="trim", mirror=True))
+        if c.p["sole"]:
+            out.append(c.box("sole_r", "shin_r", (b.leg_cx, 0.02, b.cz - 0.065 * s), (bw + 0.014, 0.04, b.leg_t + 0.19 * s + 0.014),
+                             role="sole", mirror=True))
     return out
 
 
@@ -1146,6 +1425,198 @@ def _banner(c: _Ctx) -> List[dict]:
     return out
 
 
+# --------------------------------------------------------------------------- hair, ribbons, pouch
+def _hair_bun(c: _Ctx, prefix: str, x: float, z: float, y0: float, r: float, mirror: bool) -> List[dict]:
+    """A bun of four stacked boxes (lower, darker band, upper, cap): `r` is its diameter, `y0` its base."""
+    sfx = "_r" if mirror else ""
+    out: List[dict] = []
+    y = y0
+    for tag, role, wr, hr, ry in (("a", "main", 1.0, 0.30, 0.0), ("b", "band", 1.14, 0.12, 0.0),
+                                  ("c", "main", 0.8, 0.34, 45.0), ("d", "main", 0.66, 0.16, 0.0)):  # 45 degrees keeps it symmetric
+        out.append(c.box("%s%s%s" % (prefix, tag, sfx), "head", (x, y + hr * r / 2.0, z), (wr * r, hr * r, wr * r), role=role,
+                         rotate=[0.0, ry, 0.0], mirror=mirror))
+        y += hr * r
+    return out
+
+
+@_preset("hairdo", "Hair volume on the head in the hair colour: a cap over the top and back (the face stays open), a bun, "
+                   "twin buns, ponytail or braid, bangs and side locks framing the face down to the chest, optional white-blue "
+                   "ribbon loops at the back of the head and teal/gold leaf pins at the front sides.",
+         {"style": _enum("bun", ("bun", "twin_buns", "ponytail", "braid")), "bangs": _bool(True), "locks": _bool(True),
+          "ribbon_loops": _bool(False), "pins": _bool(False)},
+         main=("hair_soft", "hair", "#f4f8ff"), trim=("silk", "#f4f8ff", "#9cc2ff"),
+         extra={"band": ("leather", "hair", "hair"), "blue": ("silk", "#9cc2ff", "#9cc2ff"),
+                "teal": ("plate_gold", "#35c9b8", "#35c9b8"), "gold": ("plate_gold", "#e6c050", "#e6c050")})
+def _hairdo(c: _Ctx) -> List[dict]:
+    b, s, hu = c.b, c.s, c.hu
+    he, hw = b.he, b.he / 2.0
+    yt, yb, cz = b.head_top, b.head_bot, b.hcz
+    zf, zb = cz - hw, cz + hw
+    t = 0.03 * hu ** 0.7
+    st = c.p["style"]
+    y_cap = yb + 0.40 * he  # the cap's back covers the upper 60 % of the head; a narrower curtain continues below
+    out: List[dict] = [
+        c.box("top", "head", (0, yt + (t - 0.004) / 2.0, (zf + zb + t) / 2.0), (he + 2 * t, t + 0.004, he + t)),
+        c.box("back", "head", (0, (yt + t + y_cap) / 2.0, zb + t / 2.0), (he + 2 * t, yt + t - y_cap, t + 0.004)),
+        c.box("side_r", "head", (hw + t / 2.0 - 0.002, yt + t / 2.0 - 0.22 * he, (zf + 0.25 * he + zb + t) / 2.0),
+              (t + 0.004, 0.44 * he + t, zb + t - zf - 0.25 * he), mirror=True),
+    ]
+    # hair gathered behind the head: a narrow tapering curtain down to the shoulder blades, never wider than the head
+    cu_pts = [(0.0, y_cap + 0.04 * he, zb + t + 0.012), (0.0, yb - 0.04 * he, zb + t + 0.02), (0.0, yb - 0.30 * he * s, zb + t - 0.012)]
+    out += c.path("cu", "head", cu_pts, [0.8 * he, 0.68 * he, 0.42 * he], [0.05 * hu ** 0.7, 0.05 * hu ** 0.7, 0.04 * hu ** 0.7], overlap=0.05)
+    if c.p["bangs"]:  # centre-parted fringe over the forehead; it ends well above the brows
+        bt = 0.045 * hu ** 0.7
+        y_hi, y_lo = yt + t, yt - 0.22 * he
+        out.append(c.box("bang_r", "head", (0.26 * he, (y_hi + y_lo) / 2.0, zf - bt / 2.0 + 0.005), (0.52 * he, y_hi - y_lo, bt),
+                         rotate=[0.0, 0.0, 7.0], mirror=True))
+    if c.p["locks"]:  # thin locks beside the face, past the chin down to the chest
+        ks = s ** 0.6
+        wl, dl = 0.11 * he * ks, 0.07 * hu ** 0.7 * ks
+        x = hw + wl / 2.0 - 0.008
+        top, bottom = yt - 0.06 * he, yb - 0.28 * he * s
+        ys = [top + (bottom - top) * f for f in (0.0, 0.45, 0.78, 1.0)]
+        xs = [x, x + 0.004, x - 0.004, x - 0.016]
+        pts = []
+        for px, py in zip(xs, ys):
+            z = zf - 0.006 + dl / 2.0
+            if py < yb:  # below the head: stay in front of the chest and the arms
+                z = min(z, b.front_z(py - 0.06, py + 0.06, 0.0, px + wl, arms=True) - dl / 2.0 - 0.012)
+            pts.append((px, py, z))
+        out += c.path("lk", "head", pts, [wl, wl, wl * 0.85, wl * 0.5], [dl, dl, dl * 0.85, dl * 0.6], suffix="_r", mirror=True, overlap=0.05)
+    ybase = yt + t - 0.004
+    if st == "bun":
+        out += _hair_bun(c, "bn", 0.0, cz + 0.2 * he, ybase, 0.56 * he * s, False)
+    elif st == "twin_buns":
+        out += _hair_bun(c, "bn", 0.3 * he, cz + 0.2 * he, ybase, 0.34 * he * s, True)
+    else:  # ponytail / braid: hangs from a tie at the back of the head
+        k = he * s
+        n = 4 if st == "ponytail" else 6
+        seg = 0.5 * k if st == "ponytail" else 0.33 * k
+        pts = c.walk((0.0, yt - 0.1 * he, zb + t + 0.02 * k), [(0.0, -1.0, 0.35 + 0.1 * (i % 3))for i in range(n)], [seg] * n)
+        if st == "ponytail":
+            out += c.path("pt", "head", pts, [0.2 * k, 0.26 * k, 0.22 * k, 0.14 * k, 0.06 * k], [0.16 * k, 0.2 * k, 0.17 * k, 0.11 * k, 0.05 * k])
+        else:
+            for i in range(n):
+                w = (0.17 if i % 2 == 0 else 0.14) * k
+                out += c.path("br%d_" % i, "head", pts[i:i + 2], [w, w * 0.92], [w * 0.85] * 2, role="main" if i % 2 == 0 else "band", overlap=0.1)
+        out.append(c.box("tie", "head", pts[0], (0.24 * k, 0.07 * k, 0.2 * k), role="band"))
+    if c.p["ribbon_loops"]:  # two ribbon loops hanging behind the cap
+        lw, lh, bar = 0.32 * he, 0.78 * he, max(0.03, 0.07 * he)
+        dep = 0.035 * hu ** 0.7
+        zl = zb + t + dep / 2.0 + 0.002
+        xc, ytop = 0.3 * he, yt - 0.05 * he
+        yc = ytop - lh / 2.0
+        piv = (xc, yc, zl)
+        for tag, role, bx, by, bw, bh in (("o", "trim", xc + lw / 2.0 - bar / 2.0, yc, bar, lh), ("i", "blue", xc - lw / 2.0 + bar / 2.0, yc, bar, lh),
+                                          ("t", "trim", xc, ytop - bar / 2.0, lw, bar), ("b", "trim", xc, ytop - lh + bar / 2.0, lw, bar)):
+            out.append(c.box("loop_%s_r" % tag, "head", (bx, by, zl), (bw, bh, dep), role=role, pivot=piv, rotate=[0.0, 0.0, 8.0], mirror=True))
+    if c.p["pins"]:  # leaf pins on the bangs' outer edge, in front of them
+        zp = zf - 0.06 * hu ** 0.7
+        yp = yt - 0.1 * he
+        out += [c.box("leaf_a_r", "head", (0.40 * he, yp, zp), (0.14 * he, 0.09 * he, 0.05 * he), role="teal", rotate=[0.0, 0.0, 35.0], mirror=True),
+                c.box("leaf_b_r", "head", (0.30 * he, yp + 0.02 * he, zp - 0.004), (0.12 * he, 0.08 * he, 0.05 * he), role="teal", rotate=[0.0, 0.0, -35.0], mirror=True),
+                c.box("pin_r", "head", (0.36 * he, yp - 0.06 * he, zp - 0.008), (0.07 * he, 0.07 * he, 0.05 * he), role="gold", rotate=[0.0, 0.0, 20.0], mirror=True)]
+    return out
+
+
+_RIBBON_FLOOR = 0.03  # plus half the ribbon width: lowest height of a ribbon's centre line
+
+
+def _ribbon_pts(p0: Vec, segs: Sequence[Tuple[float, float, float]], ln: float, floor: float) -> List[Vec]:
+    """Points of a drifting ribbon: every seg is (length, outward angle from vertical in degrees, drift towards the
+    back); what would sink below `floor` trails along it instead."""
+    pts = [p0]
+    for length, ang, drift in segs:
+        a = math.radians(ang)
+        q = _add(pts[-1], _mul(_norm((math.sin(a), -math.cos(a), drift)), length * ln))
+        if q[1] < floor:
+            q = (q[0], floor, q[2] + 0.8 * (floor - q[1]))
+        pts.append(q)
+    return pts
+
+
+@_preset("ribbons", "Long thin ribbons drifting from the wrists (pairs, down past the hem), the hem sides or the back of the "
+                    "head: rigid angled strips in 2-3 segments that follow their bone. `length` stretches them; what would "
+                    "sink below the floor trails on it.",
+         {"style": _enum("wrist", ("wrist", "hem", "back", "all")), "length": _float(1.0, 0.5, 2.0)},
+         main=("silk", "#f4f8ff", "#bcd6ff"), trim=("silk", "#bcd6ff", "#bcd6ff"))
+def _ribbons(c: _Ctx) -> List[dict]:
+    b, s = c.b, c.s
+    st = c.p["style"]
+    ln = c.p["length"] * s
+    w0 = 0.085 * math.sqrt(s)
+    out: List[dict] = []
+
+    def ribbon(prefix: str, bone: str, p0: Vec, segs, role: str) -> None:
+        pts = _ribbon_pts(p0, segs, ln, _RIBBON_FLOOR + w0 / 2.0)
+        out.extend(c.path(prefix, bone, pts, [w0 * (1.0 - 0.1 * i) for i in range(len(pts))], [0.02] * len(pts),
+                          role=role, suffix="_r", mirror=True, overlap=0.08))
+
+    if st in ("wrist", "all"):
+        x, y = b.arm_cx + b.arm_t / 2.0, b.wrist - 0.04
+        ribbon("wa", "hand_r", (x + 0.02, y, 0.0), ((0.30, 10.0, 0.08), (0.27, 28.0, 0.14), (0.25, 40.0, 0.2)), "main")
+        ribbon("wb", "hand_r", (x - 0.2 * b.arm_t, y, b.arm_t / 2.0 + 0.02), ((0.28, 4.0, 0.22), (0.26, 18.0, 0.3), (0.24, 34.0, 0.36)), "trim")
+    if st in ("hem", "all"):
+        x = b.leg_cx + b.leg_t / 2.0 + 0.07
+        ribbon("ha", "shin_r", (x, b.knee, -0.06), ((0.18, 6.0, -0.02), (0.16, 16.0, 0.0)), "main")
+        ribbon("hb", "shin_r", (x, b.knee, 0.07), ((0.18, 4.0, 0.12), (0.16, 12.0, 0.2)), "trim")
+    if st in ("back", "all"):
+        ribbon("bk", "head", (0.23 * b.he, b.head_bot + 0.2 * b.he, b.hcz + b.he / 2.0 + 0.07),
+               ((0.2, 4.0, 0.1), (0.18, 10.0, 0.14), (0.16, 3.0, 0.06)), "main")
+    return out
+
+
+@_preset("pouch", "Belt pouch on one hip with small glass vials standing in it, hung from an optional thin belt. `vials` 0-4, "
+                  "`colors` lists the vial colours (cycled), `side` is the character's own side. `arm_clear` squeezes the "
+                  "pouch (and the belt) between the centre line and the inner edge of the arm, so it never hides the hand "
+                  "or the sleeve.",
+         {"side": _enum("right", ("right", "left")), "vials": _int(3, 0, 4),
+          "colors": _colors(("#e04ad8", "#58e07a", "#4ad8f0", "#f0c040"), 4), "belt": _bool(True), "arm_clear": _bool(False)},
+         main=("leather", "#6b4a2f", "#d4aa32"),
+         extra={"flap": ("leather", "#4a3220", "#4a3220"), "cork": ("leather", "#8a6a42", "#8a6a42")})
+def _pouch(c: _Ctx) -> List[dict]:
+    b, s = c.b, c.s
+    sx = 1.0 if c.p["side"] == "right" else -1.0
+    clear = bool(c.p["arm_clear"])
+    w, h, d = 0.15 * s, 0.18 * s, 0.09 * s
+    y_belt = b.abd_bot + 0.045
+    top = y_belt - 0.02
+    x_out = b.arm_cx - b.arm_t / 2.0 - 0.012  # the arm's inner edge, minus 1.2 cm
+    if clear:
+        w = min(w, x_out - 0.4 * x_out)
+        xc = sx * (x_out - w / 2.0)
+    else:
+        xc = sx * (0.55 * b.aw + w / 2.0)
+    zf = b.front_z(top - h, top + 0.05, xc - w / 2.0, xc + w / 2.0, arms=True) - d / 2.0 - 0.008
+    if clear:
+        zf -= 0.03  # stands in front of the skirt panels
+    out: List[dict] = []
+    if c.p["belt"]:
+        bw = min(b.aw + 0.045, x_out) if clear else b.aw + 0.045
+        out.append(c.box("belt", "torso", (0, y_belt, b.cz), (2 * bw, 0.05 * s, 2 * (b.ad + 0.045)), role="flap"))
+    out.append(c.box("body", "torso", (xc, top - h / 2.0, zf), (w, h, d)))
+    out.append(c.box("flap", "torso", (xc, top - 0.035 * s + 0.005, zf - 0.004), (w + 0.012, 0.075 * s, d + 0.014), role="flap"))
+    out.append(c.box("buckle", "torso", (xc, top - 0.07 * s, zf - d / 2.0 - 0.012), (0.04 * s, 0.04 * s, 0.016), role="trim"))
+    n = c.p["vials"]
+    cols = c.p["colors"]
+    for i in range(n):
+        vh = (0.09, 0.075, 0.1, 0.082)[i] * s
+        pitch = (0.72 if clear else 0.8) * w / max(n - 1, 1)
+        vw = min(0.038 * s, 0.9 * pitch) if clear and n > 1 else 0.038 * s
+        vx = xc + (i - (n - 1) / 2.0) * pitch if n > 1 else xc
+        vz = zf + (0.012 if i % 2 else -0.008) * s
+        vy = top + 0.005 + vh / 2.0
+        tilt = (5.0, -4.0, 6.0, -5.0)[i]
+        glass = c.box("vial%d" % i, "torso", (vx, vy, vz), (vw, vh, vw), role="main", rotate=[0.0, 0.0, tilt],
+                      pivot=(vx, top + 0.005, vz))
+        glass["material"], glass["color"], glass["accent"] = "plate_gold", cols[i % len(cols)], cols[i % len(cols)]
+        out.append(glass)
+        out.append(c.box("cork%d" % i, "torso", (vx - math.sin(math.radians(tilt)) * (vh + 0.011 * s), top + 0.005 + (vh + 0.011 * s) * math.cos(math.radians(tilt)), vz),
+                         (min(0.03 * s, vw * 0.85), 0.022 * s, min(0.03 * s, vw * 0.85)), role="cork", rotate=[0.0, 0.0, tilt],
+                         pivot=(vx - math.sin(math.radians(tilt)) * (vh + 0.011 * s), top + 0.005 + (vh + 0.011 * s) * math.cos(math.radians(tilt)), vz)))
+    return out
+
+
 # --------------------------------------------------------------------------- public API
 def list_presets() -> List[str]:
     return list(PRESETS)
@@ -1197,6 +1668,17 @@ def validate_attachment(att: Any) -> List[Any]:
                 errs.append(Err(path, "bad_type", "%s must be a palette key or #rrggbb string" % key))
             elif not _color_ok(val):
                 errs.append(Err(path, "bad_color", "%s %r must be a palette key (%s) or #rrggbb" % (key, val, ", ".join(_spec.PALETTE_KEYS))))
+        elif typ == "colors":
+            if not isinstance(val, list):
+                errs.append(Err(path, "bad_type", "%s must be a list of palette keys or #rrggbb strings" % key))
+            elif not 1 <= len(val) <= p["max"]:
+                errs.append(Err(path, "out_of_range", "%s has %d entries; it needs 1..%d" % (key, len(val), p["max"])))
+            else:
+                for i, v in enumerate(val):
+                    if not isinstance(v, str):
+                        errs.append(Err("%s/%d" % (path, i), "bad_type", "%s entries must be palette key or #rrggbb strings" % key))
+                    elif not _color_ok(v):
+                        errs.append(Err("%s/%d" % (path, i), "bad_color", "%s entry %r must be a palette key (%s) or #rrggbb" % (key, v, ", ".join(_spec.PALETTE_KEYS))))
         elif typ == "bool":
             if not isinstance(val, bool):
                 errs.append(Err(path, "bad_type", "%s must be true or false" % key))

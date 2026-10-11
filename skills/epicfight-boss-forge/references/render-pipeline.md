@@ -56,6 +56,7 @@ Five inputs must agree. Epic Fight (EF) draws the mesh chosen by the mobpatch `r
 | Body collapsed into a small clump near the feet | poses are identity: skinning was applied without a pose (animator not running) or the mesh is not in bind-pose space | see level 3; confirm joint indices |
 | Wrong colors / texture swapped or mirrored | UV origin or atlas mismatch (row 0 must be the top) | regenerate; compare with the skin preview |
 | Boss far bigger or smaller than the hitbox | `attributes.scale` != `size.height / mesh height` | regenerate; `qa` checks it |
+| `held_items` shows `minecraft:air` / render-test problem "not holding its main weapon" | the weapon item is not registered, or `finalizeSpawn` did not run. NOTE `/summon <id> x y z {NBT}` with any NBT SKIPS `finalizeSpawn` (vanilla only calls it for a bare summon), so test and quest commands must summon without NBT | summon without NBT (render-test does), check `BossRegistry` |
 | Held weapon enormous | EF displays held items at 1.5x then multiplies by the entity scale | weapon `visual_scale` (`weapon-forge.md`) |
 | Everything renders in the GUI but nothing in game | the resource pack path for the mesh is wrong: the file must be `assets/<mod>/animmodels/entity/<id>.json` for model `<mod>:entity/<id>` | regenerate |
 

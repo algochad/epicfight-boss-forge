@@ -8,7 +8,7 @@ What you get from one `boss.json`:
 
 - **Boss spec** with size in blocks ("3 tall, 1 wide"), lore, stats, tier (major / quest / mini / hidden), phases, abilities, encounter.
 - **Unique boss shapes**: a custom Epic Fight mesh per boss, skinned to the stock EF biped rig so every EF animation still works. Pick a silhouette (knight, warlord, brute, colossus, caster, beast, fiend, skeletal king, wraith, insectoid), tune proportions, add crowns, horns, wings, capes, tails, pauldrons, shields, extra arms or free-form boxes.
-- **Procedural skin**: a texture painted onto the generated mesh (8 archetypes, 11 materials, 12 features) plus a five-view preview (front, three-quarter, side, back, texture) to review before you commit.
+- **Procedural skin**: a texture painted onto the generated mesh (8 archetypes, 15 materials, 17 features: anime face with bangs, pixel-art filigree borders and panels, glowing emblems, vertical gradients, any box targetable as `box:<id>`) plus a five-view preview (front, three-quarter, side, back, texture) and, for custom shapes, a body-and-face closeup to review before you commit.
 - **Weapon generator**: item sprites with distinct blade, guard and pommel shapes, Epic Fight weapon capability, models with a held-size control, loot table, recipes, so players can obtain what the boss wields.
 - **Epic Fight mobpatch** moveset with health-gated phases (validated against Epic Fight's parser rules).
 - **Forge scaffolding**: a new mod from the official MDK with the Epic Fight dependency, or add the boss to an existing mod (entity, registry, renderer, sigil/summon item, loot, advancement, lang).
@@ -16,6 +16,10 @@ What you get from one `boss.json`:
 In game (Forge dev client, King Arthur from the example):
 
 ![King Arthur in game](docs/images/king-arthur-ingame.png)
+
+A complex character built from a reference sheet (seraph wings, bun hairdo, filigree robe, ribbons, crystal staff): `assets/examples/nightingale/boss.json`.
+
+![Nightingale in game](docs/images/nightingale-ingame.png)
 
 Epic Fight is a hard dependency of generated mods. Humanoid shapes are built on the EF biped rig (rigid, static pieces; no flapping wings or cloth physics); the stock `iron_golem` mesh is also available. GeckoLib, non-humanoid skeletons and other loaders/versions are out of scope.
 

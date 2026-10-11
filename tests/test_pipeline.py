@@ -209,6 +209,26 @@ class CustomShapePipelineTests(unittest.TestCase):
         finally:
             shutil.rmtree(str(tmp), ignore_errors=True)
 
+    def test_nightingale_example_is_a_complete_complex_character(self):
+        """The reference-sheet example (wings, hairdo, ribbons, filigree, crystal staff) builds, has no stale
+        `box:` globs (spec warnings) and ships the 64px staff sprite."""
+        from _path import SKILL
+        from bossforge_core import pngio
+        ex = SKILL / "assets" / "examples" / "nightingale" / "boss.json"
+        n, errs, warns = spec.check(json.loads(ex.read_text(encoding="utf-8")))
+        self.assertEqual((errs, warns), ([], []))
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            proj = make_project(tmp / "proj")
+            res = scaffold.add_boss(ex, proj, tmp / "empty-cache", offline=True)
+            self.assertTrue(res["ok"], res)
+            self.assertTrue(res["qa"]["ok"], res["qa"])
+            tex = proj / "src/main/resources/assets/roundtable/textures/item/lullaby_staff.png"
+            self.assertEqual(pngio.png_size(tex), (64, 64))
+            self.assertEqual(pngio.png_size(tex.with_name("lullaby_staff_gui.png")), (32, 32))
+        finally:
+            shutil.rmtree(str(tmp), ignore_errors=True)
+
     def test_custom_shape_needs_no_epic_fight_mesh_download(self):
         from _path import SHIPPED_EXAMPLE
         tmp = Path(tempfile.mkdtemp())

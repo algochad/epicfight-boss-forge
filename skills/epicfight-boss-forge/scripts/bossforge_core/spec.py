@@ -9,6 +9,7 @@ Contracts used by every generator:
 from __future__ import annotations
 
 import copy
+import fnmatch
 import json
 import math
 import re
@@ -30,8 +31,10 @@ TIERS = ("major", "quest", "mini", "hidden")
 FACTIONS = ("neutral", "undead", "blaze", "enderman", "illager", "piglins", "wither", "villager", "zombified_piglin")
 BODY_TEMPLATES = ("auto", "biped", "iron_golem")
 REGION_KEYS = ("head", "torso", "arm_l", "arm_r", "leg_l", "leg_r", "hands", "feet", "arms", "legs")
-MATERIALS = ("skin", "hair", "plate_steel", "plate_gold", "leather", "chainmail", "cloth", "fur", "bone", "stone", "scales", "ember")
-FEATURE_TYPES = ("eyes", "brow", "scar", "hair", "beard", "emblem", "trim", "plates", "cracks", "wear", "runes", "stripes")
+MATERIALS = ("skin", "skin_soft", "hair", "hair_soft", "plate_steel", "plate_gold", "leather", "chainmail", "cloth", "silk", "lace",
+             "silk_feather", "fur", "bone", "stone", "scales", "ember")
+FEATURE_TYPES = ("eyes", "brow", "scar", "hair", "beard", "emblem", "trim", "plates", "cracks", "wear", "runes", "stripes",
+                 "filigree", "gradient", "mouth", "blush", "bangs", "repaint", "sparkle")
 PALETTE_KEYS = ("primary", "secondary", "accent", "skin", "hair", "eyes")
 ABILITY_TYPES = ("on_hit_effect", "aura", "summon", "regen", "enrage")
 TRIGGERS = ("summon_item", "command", "natural_spawn", )
@@ -50,14 +53,20 @@ STAT_RANGES = {
 }
 # feature parameter enums
 FEATURE_ENUMS = {
-    "eyes": {"style": ("human", "slit", "hollow", "visor")},
+    "eyes": {"style": ("human", "slit", "hollow", "visor", "anime")},
     "scar": {"side": ("left", "right")},
-    "hair": {"style": ("short", "long", "bald", "hood")},
-    "beard": {"length": ("short", "long")},
-    "emblem": {"shape": ("sun", "cross", "skull", "rune_circle", "star", "crescent"),
+    "hair": {"style": ("short", "long", "bald", "hood"), "material": ("hair", "hair_soft")},
+    "beard": {"length": ("short", "long"), "material": ("hair", "hair_soft")},
+    "emblem": {"shape": ("sun", "cross", "skull", "rune_circle", "star", "crescent", "winged_cross", "latin_cross"),
                "face": ("front", "back", "left", "right")},
     "trim": {"where": ("hem", "cuff", "collar", "belt")},
     "stripes": {"orient": ("v", "h")},
+    "filigree": {"pattern": ("meander", "key", "lozenge", "cross_band", "wing", "line", "diamond_chain", "crest", "collar_wing", "lace"),
+                 "where": ("border", "panel", "band"),
+                 "size": ("auto", "small", "large"), "anchor": ("center", "top", "bottom")},
+    "mouth": {"style": ("small", "smile", "line")},
+    "bangs": {"part": ("center", "left", "right", "none"), "material": ("hair", "hair_soft")},
+    "gradient": {"curve": ("smooth", "linear")},
 }
 SERIES_DEFAULT_PHASES = {"combo": "all", "heavy": "from2", "special": "last", "smash": "all"}
 
@@ -231,6 +240,13 @@ def default_moves(template: str, category: Optional[str], phase_count: int) -> L
     return moves
 
 
+def weapon_resolutions(category: str, shape: str) -> List[int]:
+    """Sprite sizes selectable for a weapon category/shape; the first entry is the default. Only shapes listed under
+    `shapes.resolutions` in weapon-categories.json (the staffs) may use more than the category's native sprite size."""
+    cat = data("weapon-categories")[category]
+    return list(cat["shapes"].get("resolutions", {}).get(shape) or [cat["model"]["size"]])
+
+
 def normalize_weapon(w: dict, palette: Optional[dict] = None, tier: Optional[str] = None, standalone: bool = False) -> dict:
     """Apply category/appearance/obtain defaults to one weapon object."""
     cats = data("weapon-categories")
@@ -270,6 +286,9 @@ def normalize_weapon(w: dict, palette: Optional[dict] = None, tier: Optional[str
         "length": float(ap.get("length", 1.0)),
         "width": float(ap.get("width", 1.0)),
     }
+    for k in ("resolution", "rings", "spikes"):
+        if k in ap:
+            out["appearance"][k] = ap[k]
     effects = []
     for e in out.get("effects") or []:
         d = {"on": "hit", "duration": 100, "amplifier": 0, "chance": 1.0}
@@ -621,6 +640,14 @@ def validate_weapon(errs: List[Err], path: str, w: Any, palette: Optional[dict] 
         cat = data("weapon-categories").get(w.get("category"))
         if "shape" in ap and cat is not None:
             _check_enum(errs, path + "/appearance/shape", ap["shape"], cat["shapes"]["allowed"])
+        if "resolution" in ap and cat is not None:
+            shape = ap.get("shape") or cat["shapes"]["default"]
+            if shape in cat["shapes"]["allowed"]:
+                _check_enum(errs, path + "/appearance/resolution", ap["resolution"], weapon_resolutions(w["category"], shape))
+        if "rings" in ap:
+            _check_range(errs, path + "/appearance/rings", ap["rings"], 0, 4, integer=True)
+        if "spikes" in ap:
+            _check_range(errs, path + "/appearance/spikes", ap["spikes"], 2, 5, integer=True)
         if "guard_shape" in ap:
             _check_enum(errs, path + "/appearance/guard_shape", ap["guard_shape"], GUARD_SHAPES)
         if "pommel_shape" in ap:
@@ -842,6 +869,91 @@ def check(spec: dict) -> Tuple[dict, List[Err], List[Err]]:
     return n, errs, warns
 
 
+BOX_REGION_RE = re.compile(r"^(box|part):[a-z0-9_*?\[\]-]+$")
+FEATURE_COLOR_KEYS = ("color", "from", "to", "fill", "outline", "lash", "glow_color", "wing_color")
+# numeric parameters of the newer features: name -> (lo, hi, integer)
+FEATURE_NUMBERS = {
+    "filigree": {"cell": (0, 8, True), "inset": (0, 8, True), "texture": (0, 1, False), "cx": (0, 1, False),
+                 "cy": (0, 1, False), "width": (0.1, 1, False), "height": (0.1, 1, False),
+                 "motif_height": (0.2, 1, False), "lo": (0, 1, False), "hi": (0, 1, False)},
+    "gradient": {"lo": (0, 1, False), "hi": (0, 1, False), "amount": (0, 1, False), "texture": (0, 1, False)},
+    "mouth": {"y": (0.5, 0.95, False), "width": (0.05, 0.4, False)},
+    "blush": {"amount": (0, 1, False), "size": (0.5, 2, False), "y": (0.4, 0.95, False)},
+    "bangs": {"depth": (0.12, 0.42, False), "clear": (0.15, 0.6, False), "lock_width": (0.04, 0.25, False),
+              "lock_length": (0.3, 1, False)},
+    "eyes": {"y": (0.3, 0.8, False)},
+    "hair": {"length": (0.1, 1, False)},
+    "emblem": {"halo": (1, 8, True), "hot": (0, 1, False)},
+    "trim": {"at": (0, 1, False)},
+    "sparkle": {"density": (0, 0.2, False), "strength": (0, 1, False)},
+}
+FACE_NAMES = ("front", "back", "left", "right", "side", "sides")
+FEATURE_FACES = {"filigree": FACE_NAMES, "gradient": FACE_NAMES + ("top", "bottom"), "repaint": FACE_NAMES + ("top", "bottom"),
+                 "sparkle": FACE_NAMES}
+PANEL_SIDES = ("top", "bottom", "left", "right")
+
+
+def _shape_box_ids(n) -> Optional[List[str]]:
+    """Box ids of the custom shape of normalized spec `n`, [] when it has none, None when it does not resolve."""
+    if not isinstance(n.get("shape"), dict):
+        return []
+    try:
+        from . import shape as _shape
+        return [b["id"] for b in _shape.resolve(n["shape"])[0]]
+    except Exception:
+        return None
+
+
+def _check_feature_targets(errs, warns, p, f, n):
+    """`region` / `regions` of a feature: a body region, `box:<id>` of a custom-shape box or `part:<id>` of any mesh part
+    (`*`, `?`, `[..]` globs allowed: `box:skirt_fr*`, `part:fist_*`); a target that matches no box of a custom shape is a
+    warning."""
+    names = []  # type: List[Tuple[str, Any]]
+    if "region" in f:
+        names.append((p + "/region", f["region"]))
+    regions = f.get("regions")
+    if regions is not None and not isinstance(regions, list):
+        errs.append(Err(p + "/regions", "bad_type", "regions must be a list"))
+        regions = []
+    for r in regions or []:
+        names.append((p + "/regions", r))
+    ids = False  # type: Any  # computed on the first box / part target
+    for path, r in names:
+        if isinstance(r, str) and BOX_REGION_RE.match(r):
+            if ids is False:
+                ids = _shape_box_ids(n)
+            kind, pattern = r.split(":", 1)
+            if kind == "part" and not ids:
+                continue  # stock meshes have their own part names (rightArm, ...): nothing to compare with
+            if ids is not None and not any(fnmatch.fnmatchcase(("box:" + i) if kind == "box" else i, r if kind == "box" else pattern) for i in ids):
+                warns.append(Err(path, "unknown_box", "no custom shape box matches %r" % r))
+        elif r not in REGION_KEYS:
+            errs.append(Err(path, "unknown_region", "unknown region %r; allowed: %s, or box:<id> / part:<id> of a custom shape box (globs like box:skirt_fr* allowed)"
+                            % (r, ", ".join(REGION_KEYS))))
+
+
+def _check_feature_params(errs, p, t, f):
+    if t == "repaint":
+        _check_enum_code(errs, p + "/material", f.get("material"), MATERIALS, "unknown_material")
+        if not f.get("region") and not f.get("regions"):
+            errs.append(Err(p, "required", "repaint needs a target: region or regions (e.g. box:greaves_* or part:fist_*)"))
+    for k, (lo, hi, integer) in FEATURE_NUMBERS.get(t, {}).items():
+        if k in f:
+            _check_range(errs, "%s/%s" % (p, k), f[k], lo, hi, integer)
+    if t == "emblem" and "glow" in f and not isinstance(f["glow"], bool):
+        _check_range(errs, p + "/glow", f["glow"], 0, 1)
+    for key, allowed in (("faces", FEATURE_FACES.get(t)), ("sides", PANEL_SIDES if t == "filigree" else None)):
+        if key in f and allowed:
+            v = f[key]
+            if not isinstance(v, list) or not v:
+                errs.append(Err("%s/%s" % (p, key), "bad_type", "%s must be a non-empty list of: %s" % (key, ", ".join(allowed))))
+                continue
+            for item in v:
+                _check_enum(errs, "%s/%s" % (p, key), item, allowed)
+    if "face" in f and t in FEATURE_FACES:
+        _check_enum(errs, p + "/face", f["face"], FEATURE_FACES[t])
+
+
 def _validate_appearance(errs, warns, ap, n):
     archs = data("archetypes")
     if not isinstance(ap, dict):
@@ -895,13 +1007,11 @@ def _validate_appearance(errs, warns, ap, n):
         for pk, allowed in FEATURE_ENUMS.get(t, {}).items():
             if pk in f:
                 _check_enum(errs, "%s/%s" % (p, pk), f[pk], allowed)
-        if "color" in f:
-            _check_color(errs, p + "/color", f["color"], npal)
-        if "region" in f and f["region"] not in REGION_KEYS:
-            errs.append(Err(p + "/region", "unknown_region", "unknown region %r; allowed: %s" % (f["region"], ", ".join(REGION_KEYS))))
-        for r in f.get("regions") or []:
-            if r not in REGION_KEYS:
-                errs.append(Err(p + "/regions", "unknown_region", "unknown region %r; allowed: %s" % (r, ", ".join(REGION_KEYS))))
+        for ck in FEATURE_COLOR_KEYS:
+            if ck in f:
+                _check_color(errs, "%s/%s" % (p, ck), f[ck], npal)
+        _check_feature_targets(errs, warns, p, f, n)
+        _check_feature_params(errs, p, t, f)
     sc = (ap.get("texture") or {}).get("scale")
     if sc is not None and sc not in (1, 2, 4):
         errs.append(Err("/appearance/texture/scale", "unknown_value", "texture scale must be 1, 2 or 4"))
