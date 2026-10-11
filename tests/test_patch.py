@@ -6,7 +6,7 @@ import unittest
 from bossforge_core import catalog, moves, patch, spec
 from bossforge_core.qa import validate_mobpatch, validate_mobpatch_text
 from bossforge_core.spec import BossForgeError, make_context
-from _path import EXAMPLE
+from _path import EXAMPLE, SHIPPED_EXAMPLE
 
 
 def arthur():
@@ -338,10 +338,30 @@ class ValidatorTests(unittest.TestCase):
         self.assertIn(("mobpatch_unknown_livingmotion", "/default_livingmotions/levitate"), c)
         self.assertIn(("mobpatch_unknown_stun_type", "/stun_animations/stagger"), c)
 
-    def test_epicfight_custom_renderer_is_rejected(self):
+    def test_epicfight_custom_renderer_needs_the_humanoid_key(self):
         obj = copy.deepcopy(self.good)
         obj["renderer"] = "epicfight:custom"
-        self.assertIn(("mobpatch_bad_renderer", "/renderer"), self.codes(obj))
+        obj["model"] = "roundtable:entity/test"
+        self.assertIn(("mobpatch_bad_renderer", "/humanoid"), self.codes(obj))
+        obj["humanoid"] = True
+        self.assertNotIn("mobpatch_bad_renderer", {c for c, _p in self.codes(obj)})
+
+    def test_a_custom_model_with_a_preset_renderer_is_rejected_because_ef_ignores_it(self):
+        obj = copy.deepcopy(self.good)
+        obj["model"] = "roundtable:entity/test"
+        self.assertIn(("mobpatch_model_ignored", "/renderer"), self.codes(obj))
+
+    def test_custom_shape_patch_uses_the_custom_renderer(self):
+        raw = json.loads(SHIPPED_EXAMPLE.read_text(encoding="utf-8"))
+        n = norm(raw)
+        obj = patch.build(n)
+        self.assertEqual(obj["renderer"], "epicfight:custom")
+        self.assertIs(obj["humanoid"], True)
+        self.assertIs(obj["isHumanoid"], True)
+        self.assertEqual(obj["model"], n["derived"]["model_id"])
+        self.assertEqual(obj["armature"], "epicfight:entity/biped")
+        self.assertEqual(list(obj)[:6], ["model", "armature", "renderer", "isHumanoid", "humanoid", "faction"])
+        self.assertEqual(validate_mobpatch(obj), [])
 
     def test_humanoid_categories_must_be_a_list_of_known_lowercase_names(self):
         obj = copy.deepcopy(self.good)

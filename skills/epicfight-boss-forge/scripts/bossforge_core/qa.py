@@ -209,7 +209,12 @@ def validate_mobpatch(d: Any, catalog_module: Optional[Any] = None) -> List[Err]
     elif not isinstance(d["renderer"], str) or not d["renderer"]:
         c.err("/renderer", "bad_type", "renderer must be a non-empty string")
     elif d["renderer"] == "epicfight:custom":
-        c.err("/renderer", "bad_renderer", "renderer `epicfight:custom` reads a `humanoid` key the parser never writes; use `player` (biped) or `minecraft:iron_golem`")
+        # RenderEngine.registerCustomEntityRenderer reads the boolean `humanoid` (not `isHumanoid`) to pick
+        # PCustomHumanoidEntityRenderer (HumanoidMesh, item layers) over PCustomEntityRenderer (plain mesh).
+        if d.get("humanoid") is not d.get("isHumanoid", False):
+            c.err("/humanoid", "bad_renderer", "renderer `epicfight:custom` needs a boolean `humanoid` key equal to `isHumanoid` (EF reads `humanoid` to pick the renderer)")
+    elif isinstance(d.get("model"), str) and not d["model"].startswith("epicfight:"):
+        c.err("/renderer", "model_ignored", "renderer %r draws the stock Epic Fight mesh and ignores `model` %r; use renderer `epicfight:custom` with `humanoid` for a custom mesh" % (d["renderer"], d["model"]))
     if "faction" not in d:
         c.err("/faction", "missing_key", "required key 'faction' is missing")
     elif not isinstance(d["faction"], str) or d["faction"].lower() not in FACTIONS:

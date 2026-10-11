@@ -44,7 +44,7 @@ Stun duration reduction = `stun_armor / (stun_armor + 7.5)`; with `stun_armor 15
 
 ## Custom models on the biped rig
 
-A boss with a `shape` gets `"model": "<mod>:entity/<id>"` (EF loads `assets/<mod>/animmodels/entity/<id>.json`) and keeps `"armature": "epicfight:entity/biped"`, so every biped animation and weapon moveset still applies. The mesh JSON has no armature section; vertices are rigidly weighted to the biped joints (indices from `assets/data/rigs.json`), and all 12 EF humanoid part names (`head hat torso jacket rightArm leftArm rightLeg leftLeg rightSleeve leftSleeve rightPants leftPants`) are present because `HumanoidMesh` looks them up. `qa` re-validates the mesh JSON and checks that the mobpatch `model` matches.
+A boss with a `shape` gets `"model": "<mod>:entity/<id>"` (EF loads `assets/<mod>/animmodels/entity/<id>.json`), `"renderer": "epicfight:custom"` and `"humanoid": true`, and keeps `"armature": "epicfight:entity/biped"`, so every biped animation and weapon moveset still applies. The renderer key is essential: `renderer: "player"` always draws the stock biped mesh and ignores `model` (a custom model with it renders the stock mesh with the custom texture scrambled across it). `epicfight:custom` reads the boolean `humanoid` (not `isHumanoid`) to choose the humanoid renderer with item/armor layers. The mesh JSON has no armature section; vertices are rigidly weighted to the biped joints (indices from `assets/data/rigs.json`), and all 12 EF humanoid part names (`head hat torso jacket rightArm leftArm rightLeg leftLeg rightSleeve leftSleeve rightPants leftPants`) are present because `HumanoidMesh` looks them up. `qa` re-validates the mesh JSON and checks that the mobpatch `model` matches.
 
 ## Custom armatures
 

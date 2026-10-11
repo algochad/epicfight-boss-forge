@@ -74,15 +74,22 @@ def build(n: dict) -> dict:
     faction = n.get("faction")
     if not isinstance(faction, str) or not faction:
         raise BossForgeError("/faction", "required", "faction is missing")
+    custom = bool((n.get("derived") or {}).get("custom"))
     out: Dict[str, object] = {
         "model": (n.get("derived") or {}).get("model_id") or tpl["model_id"],
         "armature": tpl["armature_id"],
-        "renderer": tpl["renderer"],
+        # The `player` preset renderer always draws the stock biped mesh and ignores `model`. Only
+        # `epicfight:custom` draws the mobpatch `model`, and it picks the humanoid variant from `humanoid`.
+        "renderer": "epicfight:custom" if custom else tpl["renderer"],
         "isHumanoid": bool(tpl["humanoid"]),
+    }
+    if custom:
+        out["humanoid"] = bool(tpl["humanoid"])
+    out.update({
         "faction": faction,
         "attributes": _attributes(n),
         "default_livingmotions": dict(tpl["living_motions"]),
-    }
+    })
     if tpl["humanoid"]:
         cat = moves.preset_category(n)
         out["humanoid_weapon_motions"] = [] if cat == "fist" else weapon_motions(cat, moves.natural_style(n))

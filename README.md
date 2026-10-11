@@ -13,6 +13,10 @@ What you get from one `boss.json`:
 - **Epic Fight mobpatch** moveset with health-gated phases (validated against Epic Fight's parser rules).
 - **Forge scaffolding**: a new mod from the official MDK with the Epic Fight dependency, or add the boss to an existing mod (entity, registry, renderer, sigil/summon item, loot, advancement, lang).
 
+In game (Forge dev client, King Arthur from the example):
+
+![King Arthur in game](docs/images/king-arthur-ingame.png)
+
 Epic Fight is a hard dependency of generated mods. Humanoid shapes are built on the EF biped rig (rigid, static pieces; no flapping wings or cloth physics); the stock `iron_golem` mesh is also available. GeckoLib, non-humanoid skeletons and other loaders/versions are out of scope.
 
 ## Install

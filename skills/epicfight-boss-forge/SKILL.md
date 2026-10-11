@@ -75,7 +75,7 @@ You cannot judge your own visual work. After `skin`: open the preview image, des
 - Humanoid `combat_behavior.weapon_categories` must be a JSON list.
 - A modded boss MUST have EF attributes added in `EntityAttributeModificationEvent` or EF throws an NPE (generated `BossModEvents` does it).
 - The entity must extend `PathfinderMob` and must not add melee goals; EF adds `AnimatedAttackGoal` and `TargetChasingGoal`.
-- `renderer: "player"` for the biped template, `"minecraft:iron_golem"` for the golem; never `epicfight:custom` (it reads a `humanoid` key the parser never writes).
+- Renderer choice decides which mesh is drawn. `renderer: "player"` ALWAYS draws the stock biped mesh and ignores the mobpatch `model`; `"minecraft:iron_golem"` the stock golem. A custom mesh (a `shape` boss) needs `renderer: "epicfight:custom"` plus a boolean `"humanoid": true` key (EF reads `humanoid`, not `isHumanoid`, to pick `PCustomHumanoidEntityRenderer`). The generator writes this; `qa` rejects a custom `model` with a preset renderer (it would silently render the stock mesh with your texture scrambled across it).
 - `scale` resizes the mesh only; the hitbox comes from `EntityType.Builder.sized`.
 - One unresolvable animation key makes EF skip the whole patch with only a log warning (`Can't deserialize mob capability`). `qa` checks every key against the catalog.
 - A stun type with no bound animation means the mob is immune; stun time reduction is `stun_armor/(stun_armor+7.5)`.
@@ -85,7 +85,7 @@ You cannot judge your own visual work. After `skin`: open the preview image, des
 - The MDK must be the 1.20.1 one (Java 17, ForgeGradle 6), not the `1.20.x` branch (Java 21).
 - EF meshes are fetched from GitHub into the cache (GPL): never commit them to a project.
 - Overlay-layer armor and the golem renderer path cannot be verified offline: say so in the report. If the overlay does not render in game set `appearance.overlay_enabled: false`.
-- A `shape` boss uses a custom EF mesh `assets/<mod>/animmodels/entity/<id>.json` referenced by the mobpatch `model` (`<mod>:entity/<id>`) with the stock `epicfight:entity/biped` armature; the mesh must contain the 12 EF part names (generated). Shape pieces are rigid and static (no cloth or wing animation). The mesh was verified to load with EF's own `JsonAssetLoader`; how it looks and moves in game still needs a play test.
+- A `shape` boss uses a custom EF mesh `assets/<mod>/animmodels/entity/<id>.json` referenced by the mobpatch `model` (`<mod>:entity/<id>`) with the stock `epicfight:entity/biped` armature; the mesh must contain the 12 EF part names (generated). Shape pieces are rigid and static (no cloth or wing animation). The generated King Arthur mesh was verified loading with EF's own `JsonAssetLoader` and rendering correctly in a Forge dev client (screenshots); attack/stun behavior still needs a play test.
 - EF scales held items with the entity `scale` on top of its own 1.5x display scale: big bosses get huge weapons. The generator auto-shrinks the main weapon's hand display above scale 1.2; tune with weapon `visual_scale` (0.4-1.5).
 
 ## Command reference
