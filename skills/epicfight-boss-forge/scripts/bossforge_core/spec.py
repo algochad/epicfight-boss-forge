@@ -37,6 +37,8 @@ ABILITY_TYPES = ("on_hit_effect", "aura", "summon", "regen", "enrage")
 TRIGGERS = ("summon_item", "command", "natural_spawn", )
 RARITIES = ("common", "uncommon", "rare", "epic")
 MOTIFS = ("plain", "fuller", "runes", "serrated")
+GUARD_SHAPES = ("bar", "winged", "curved", "ring", "ornate", "none")
+POMMEL_SHAPES = ("disc", "gem", "spike", "ring", "none")
 BAR_COLORS = ("pink", "blue", "red", "green", "yellow", "purple", "white")
 BAR_OVERLAYS = ("progress", "notched_6", "notched_10", "notched_12", "notched_20")
 EF_FLOAT_STATS = ("impact", "armor_negation", "stun_armor", "attack_damage", "chasing_speed")
@@ -262,6 +264,11 @@ def normalize_weapon(w: dict, palette: Optional[dict] = None, tier: Optional[str
         "gem": ap.get("gem", pal.get("eyes", "#46a0ff")),
         "glow": bool(ap.get("glow", False)),
         "motif": ap.get("motif", "fuller"),
+        "shape": ap.get("shape", cat["shapes"]["default"]),
+        "guard_shape": ap.get("guard_shape", "bar"),
+        "pommel_shape": ap.get("pommel_shape", "disc"),
+        "length": float(ap.get("length", 1.0)),
+        "width": float(ap.get("width", 1.0)),
     }
     effects = []
     for e in out.get("effects") or []:
@@ -301,6 +308,52 @@ def weapon_category(n: dict, weapon_id: Optional[str]) -> Optional[str]:
         if w.get("id") == weapon_id:
             return w.get("category")
     return None
+
+
+_SHAPE_HEIGHT_CACHE: Dict[str, Optional[float]] = {}
+
+
+def normalize_shape(s: dict) -> dict:
+    """Default the `shape` block (custom EF-biped model, see references/shape-forge.md)."""
+    out = copy.deepcopy(s)
+    out.setdefault("rig", "biped")
+    out.setdefault("silhouette", None)
+    out["proportions"] = dict(out.get("proportions") or {})
+    out["attachments"] = list(out.get("attachments") or [])
+    out["remove"] = list(out.get("remove") or [])
+    out["parts"] = list(out.get("parts") or [])
+    tex = dict(out.get("texture") or {})
+    tex.setdefault("density", 32)
+    out["texture"] = tex
+    return out
+
+
+def shape_model_height(n: dict) -> Optional[float]:
+    """Total height (feet at 0) of the custom mesh, None when the shape cannot be built."""
+    key = json.dumps(n.get("shape"), sort_keys=True, default=str) + "|" + json.dumps(n["appearance"]["palette"], sort_keys=True)
+    if key not in _SHAPE_HEIGHT_CACHE:
+        try:
+            from . import shape as _shape
+            _SHAPE_HEIGHT_CACHE[key] = round(float(_shape.build_model(n).height), 4)
+        except (BossForgeError, ImportError, KeyError, TypeError, ValueError):
+            _SHAPE_HEIGHT_CACHE[key] = None
+    return _SHAPE_HEIGHT_CACHE[key]
+
+
+def _validate_shape(errs: List[Err], spec: dict) -> None:
+    s = spec.get("shape")
+    if not isinstance(s, dict):
+        errs.append(Err("/shape", "bad_type", "shape must be an object"))
+        return
+    if (spec.get("body") or {}).get("template", "auto") not in ("auto", "biped"):
+        errs.append(Err("/body/template", "shape_requires_biped", "a custom shape is built on the EF biped rig; use body.template auto or biped"))
+    try:
+        from . import shape as _shape
+    except ImportError:
+        errs.append(Err("/shape", "shape_module_missing", "the shape module is not available"))
+        return
+    for e in _shape.validate_shape(normalize_shape(s)):
+        errs.append(Err("/shape" + e.path, e.code, e.message))
 
 
 def normalize(spec: dict) -> dict:
@@ -383,7 +436,12 @@ def normalize(spec: dict) -> dict:
     wlist = [w for w in n["weapons"] if isinstance(w, dict)]
     has_weapon = bool(n.get("main_weapon"))
     template = None
-    if n["body"]["template"] in templates or n["body"]["template"] == "auto":
+    shape_in = n.get("shape")
+    custom = isinstance(shape_in, dict) and n["body"]["template"] in ("auto", "biped")
+    if custom:
+        template = "biped"
+        n["shape"] = normalize_shape(shape_in)
+    elif n["body"]["template"] in templates or n["body"]["template"] == "auto":
         if _is_num(size.get("height")) and _is_num(size.get("width")) and size.get("height", 0) > 0:
             template = pick_template(n["body"]["template"], size, has_weapon)
     n["body"]["resolved"] = template
@@ -431,16 +489,21 @@ def normalize(spec: dict) -> dict:
     sounds.update(n.get("sounds") or {})
     n["sounds"] = sounds
     # derived
-    derived = {"template": template, "scale": None, "hitbox": None, "model_height": None, "warnings": []}
+    derived = {"template": template, "scale": None, "hitbox": None, "model_height": None, "warnings": [],
+               "custom": bool(custom), "model_id": None}
     if _is_num(size.get("height")) and _is_num(size.get("width")):
         derived["hitbox"] = [size["width"], size["height"]]
     if template:
-        mh = templates[template].get("model_height")
+        if custom:
+            derived["model_id"] = "%s:entity/%s" % (n.get("mod_id"), n.get("id"))
+            mh = shape_model_height(n)
+        else:
+            mh = templates[template].get("model_height")
         derived["model_height"] = mh
         if mh and _is_num(size.get("height")):
             derived["scale"] = round(size["height"] / mh, 3)
         ref = templates[template]["ref_hitbox"]
-        if _is_num(size.get("height")) and _is_num(size.get("width")) and size["height"] > 0:
+        if not custom and _is_num(size.get("height")) and _is_num(size.get("width")) and size["height"] > 0:
             if size["width"] / size["height"] > 1.35 * (ref["width"] / ref["height"]):
                 derived["warnings"].append(Err("/size/width", "wide_hitbox_for_template",
                                                "width/height exceeds 1.35x the %s reference proportion; mesh will look narrow in the hitbox" % template).to_dict())
@@ -555,6 +618,19 @@ def validate_weapon(errs: List[Err], path: str, w: Any, palette: Optional[dict] 
                 _check_color(errs, path + "/appearance/" + k, ap[k], palette or {})
         if "motif" in ap:
             _check_enum(errs, path + "/appearance/motif", ap["motif"], MOTIFS)
+        cat = data("weapon-categories").get(w.get("category"))
+        if "shape" in ap and cat is not None:
+            _check_enum(errs, path + "/appearance/shape", ap["shape"], cat["shapes"]["allowed"])
+        if "guard_shape" in ap:
+            _check_enum(errs, path + "/appearance/guard_shape", ap["guard_shape"], GUARD_SHAPES)
+        if "pommel_shape" in ap:
+            _check_enum(errs, path + "/appearance/pommel_shape", ap["pommel_shape"], POMMEL_SHAPES)
+        if "length" in ap:
+            _check_range(errs, path + "/appearance/length", ap["length"], 0.8, 1.15)
+        if "width" in ap:
+            _check_range(errs, path + "/appearance/width", ap["width"], 0.7, 1.4)
+    if "visual_scale" in w:
+        _check_range(errs, path + "/visual_scale", w["visual_scale"], 0.4, 1.5)
     for i, e in enumerate(w.get("effects") or []):
         ep = "%s/effects/%d" % (path, i)
         if not isinstance(e, dict) or not isinstance(e.get("effect"), str) or not RES_ID_RE.match(e.get("effect", "")):
@@ -684,6 +760,8 @@ def check(spec: dict) -> Tuple[dict, List[Err], List[Err]]:
                     lo, hi = STAT_RANGES[k]
                     _check_range(errs, "/stats/" + k, v, lo, hi, integer=(k == "max_strikes"))
     _validate_appearance(errs, warns, spec.get("appearance") or {}, n)
+    if "shape" in spec:
+        _validate_shape(errs, spec)
     # weapons
     ws = spec.get("weapons") or []
     if not isinstance(ws, list):
@@ -750,7 +828,17 @@ def check(spec: dict) -> Tuple[dict, List[Err], List[Err]]:
         errs.append(Err("/size/height", "scale_out_of_range", "height %s on template %s gives mesh scale %s; allowed 0.5-5.0" % (size and size.get("height"), template, d["scale"])))
     warns.extend(Err(**w) for w in d["warnings"])
     if template and d.get("scale") is None:
-        warns.append(Err("/body/template", "template_unmeasured", "template %s has no measured model_height yet" % template))
+        if d.get("custom"):
+            if not any(e.path.startswith("/shape") for e in errs):
+                errs.append(Err("/shape", "shape_unbuildable", "the shape could not be built (see shape module errors)"))
+        else:
+            warns.append(Err("/body/template", "template_unmeasured", "template %s has no measured model_height yet" % template))
+    if d.get("custom") and not errs:
+        try:
+            from . import shape as _shape
+            warns.extend(_shape.build_model(n).warnings)
+        except BossForgeError as e:
+            errs.append(e.err)
     return n, errs, warns
 
 
@@ -818,7 +906,7 @@ def _validate_appearance(errs, warns, ap, n):
     if sc is not None and sc not in (1, 2, 4):
         errs.append(Err("/appearance/texture/scale", "unknown_value", "texture scale must be 1, 2 or 4"))
     tpl = n["derived"]["template"]
-    if tpl:
+    if tpl and not n["derived"].get("custom"):
         sc = n["appearance"]["texture"]["scale"]
         auv = data("templates")[tpl]["authored_uv"]
         if sc in (1, 2, 4) and max(auv) * sc > 512:

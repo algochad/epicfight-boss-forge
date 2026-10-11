@@ -7,6 +7,7 @@ Both return `(files, lang)` and never touch the disk.
 from __future__ import annotations
 
 import json
+import math
 import zlib
 from typing import Dict, List, Optional, Tuple
 
@@ -55,17 +56,127 @@ def default_recipe(category: str, essence_item: str) -> dict:
     return {"pattern": pattern, "key": key}
 
 
-def model_json(category: str, mod_id: str, item_id: str) -> dict:
-    """Item model JSON for a weapon: handheld/dagger parent models or Epic Fight's separate_transforms."""
+# Hand display transforms of each category's PARENT model, transcribed once from the Epic Fight 20.14.17 jar
+# (assets/epicfight/models/item/{longsword,greatsword,tachi,spear,dagger}.json) and the vanilla 1.20.1
+# client jar (assets/minecraft/models/item/handheld.json, used by sword and axe). Each entry is
+# (rotation, translation in 1/16 block, scale); left-hand entries are stored as authored (Minecraft mirrors them on use).
+_HANDHELD = {
+    "thirdperson_righthand": ((0, -90, 55), (0, 4.0, 0.5), (0.85, 0.85, 0.85)),
+    "thirdperson_lefthand": ((0, 90, -55), (0, 4.0, 0.5), (0.85, 0.85, 0.85)),
+    "firstperson_righthand": ((0, -90, 25), (1.13, 3.2, 1.13), (0.68, 0.68, 0.68)),
+    "firstperson_lefthand": ((0, 90, -25), (1.13, 3.2, 1.13), (0.68, 0.68, 0.68)),
+}
+_PARENT_DISPLAY = {
+    "sword": _HANDHELD,
+    "axe": _HANDHELD,
+    "dagger": {
+        "thirdperson_righthand": ((0, -90, 35), (0, 2, 0.3), (0.8, 0.8, 1.0)),
+        "thirdperson_lefthand": ((0, 90, -35), (0, 2, 0.3), (0.8, 0.8, 1.0)),
+        "firstperson_righthand": ((50, 90, 0), (2, 2.5, 0), (1.0, 1.0, 0.7)),
+        "firstperson_lefthand": ((45, -90, 0), (2, 2.5, 0), (1.0, 1.0, 0.7)),
+    },
+    "longsword": {
+        "thirdperson_righthand": ((0, -90, 40), (0, 8.0, 2.0), (1.5, 1.5, 0.85)),
+        "thirdperson_lefthand": ((0, 90, -40), (0, 8.0, 2.0), (1.5, 1.5, 0.85)),
+        "firstperson_righthand": ((0, -90, 25), (1.13, 3.2, 1.13), (1.7, 1.7, 0.85)),
+        "firstperson_lefthand": ((0, 90, -25), (1.13, 3.2, 1.13), (1.7, 1.7, 0.85)),
+    },
+    "greatsword": {
+        "thirdperson_righthand": ((0, -90, 55), (0, 7.5, -2), (1.7, 1.7, 0.85)),
+        "thirdperson_lefthand": ((0, 90, -55), (0, 7.5, -2), (1.7, 1.7, 0.85)),
+        "firstperson_righthand": ((0, -90, 25), (1.13, 3.2, 1.13), (1.2, 1.2, 0.85)),
+        "firstperson_lefthand": ((0, 90, -25), (1.13, 3.2, 1.13), (1.2, 1.2, 0.85)),
+    },
+    "tachi": {
+        "thirdperson_righthand": ((20, -90, 55), (0, 11.5, 2.5), (1.7, 1.7, 0.85)),
+        "thirdperson_lefthand": ((0, 90, -55), (0, 13.25, -1.75), (1.7, 1.7, 0.85)),
+        "firstperson_righthand": ((0, -90, 25), (1.13, 9.2, 1.13), (1.7, 1.7, 0.85)),
+        "firstperson_lefthand": ((0, 90, -25), (1.13, 9.2, 1.13), (1.7, 1.7, 0.85)),
+    },
+    "spear": {
+        "thirdperson_righthand": ((0, -90, 35), (0.0, 2, 1.5), (2.5, 2.5, 1.0)),
+        "thirdperson_lefthand": ((0, 90, -35), (0.0, 2, 0.3), (1.5, 1.5, 1.0)),
+        "firstperson_righthand": ((50, 90, 0), (2, 2.5, 0), (1.0, 1.0, 0.7)),
+        "firstperson_lefthand": ((45, -90, 0), (2, 2.5, 0), (1.0, 1.0, 0.7)),
+    },
+}
+
+
+def _rotate(rx: float, ry: float, rz: float, v):
+    """Minecraft item rotation (degrees): a vector is turned about Z first, then Y, then X."""
+    x, y, z = v
+    c, s = math.cos(math.radians(rz)), math.sin(math.radians(rz))
+    x, y = x * c - y * s, x * s + y * c
+    c, s = math.cos(math.radians(ry)), math.sin(math.radians(ry))
+    x, z = x * c + z * s, -x * s + z * c
+    c, s = math.cos(math.radians(rx)), math.sin(math.radians(rx))
+    y, z = y * c - z * s, y * s + z * c
+    return x, y, z
+
+
+def display_json(category: str, visual_scale: float) -> dict:
+    """`display` block for the four hand perspectives with the parent's X/Y scale multiplied by `visual_scale`.
+
+    Minecraft applies translate -> rotate -> scale, so shrinking the model about its centre would drag the grip away
+    from the hand. The translation is moved by R * ((1-s) * S * g), g being the sprite's grip point relative to the
+    model centre, which keeps the grip exactly where the parent model puts it. Left-hand entries are first converted
+    to the transform Minecraft really applies (it negates their Y/Z rotation and X translation) and converted back.
+    """
+    gx, gy = sprites.hold_point(category)
+    s = float(visual_scale)
+    out: Dict[str, dict] = {}
+    for key, (rot, tr, sc) in _PARENT_DISPLAY[category].items():
+        left = "lefthand" in key
+        rx, ry, rz = float(rot[0]), float(rot[1]), float(rot[2])
+        tx, ty, tz = float(tr[0]), float(tr[1]), float(tr[2])
+        if left:
+            ry, rz, tx = -ry, -rz, -tx
+        dx, dy, dz = _rotate(rx, ry, rz, ((1.0 - s) * sc[0] * gx, (1.0 - s) * sc[1] * gy, 0.0))
+        tx, ty, tz = tx + dx, ty + dy, tz + dz
+        if left:
+            tx = -tx
+        out[key] = {
+            "rotation": [float(rot[0]), float(rot[1]), float(rot[2])],
+            "translation": [round(max(-80.0, min(80.0, v)), 4) + 0.0 for v in (tx, ty, tz)],
+            "scale": [round(min(4.0, sc[0] * s), 4), round(min(4.0, sc[1] * s), 4), float(sc[2])],
+        }
+    return out
+
+
+def effective_visual_scale(w: dict, boss_scale: Optional[float] = None, is_main: bool = False) -> float:
+    """Explicit `visual_scale` wins. Otherwise the boss's main weapon shrinks by 1/sqrt(mesh scale) once the mesh
+    scale exceeds 1.2 (clamped 0.7-1.0; the mesh scale already enlarges whatever the boss holds). Else 1.0."""
+    explicit = w.get("visual_scale")
+    if explicit is not None:
+        return float(explicit)
+    if is_main and boss_scale is not None and boss_scale > 1.2:
+        return max(0.7, min(1.0, round(1.0 / math.sqrt(boss_scale), 2)))
+    return 1.0
+
+
+def model_json(category: str, mod_id: str, item_id: str, visual_scale: float = 1.0) -> dict:
+    """Item model JSON for a weapon: handheld/dagger parent models or Epic Fight's separate_transforms.
+
+    A `visual_scale` other than 1.0 adds a hand-perspective `display` block (top level for plain parents, inside
+    `base` for separate_transforms so gui/fixed/ground keep the parent's look)."""
     m = _cat(category)["model"]
     tex = "%s:item/%s" % (mod_id, item_id)
+    display = display_json(category, visual_scale) if abs(float(visual_scale) - 1.0) > 1e-9 else None
     if m["kind"] in ("handheld", "epic_parent"):
-        return {"parent": m["parent"], "textures": {"layer0": tex}}
+        out = {"parent": m["parent"]}
+        if display:
+            out["display"] = display
+        out["textures"] = {"layer0": tex}
+        return out
     gui = {"parent": m["parent"], "textures": {"layer0": tex + "_gui"}}
+    base = {"parent": m["parent"]}
+    if display:
+        base["display"] = display
+    base["textures"] = {"layer0": tex}
     return {
         "loader": "forge:separate_transforms",
         "gui_light": "front",
-        "base": {"parent": m["parent"], "textures": {"layer0": tex}},
+        "base": base,
         "perspectives": {"gui": gui, "fixed": dict(gui), "ground": dict(gui)},
     }
 
@@ -145,7 +256,8 @@ def _png(canvas: Canvas) -> bytes:
     return write_png(None, canvas)
 
 
-def _weapon_files(w: dict, mod: str, essence_ref: str, palette: Optional[dict]) -> Tuple[List[GenFile], Dict[str, str], Canvas]:
+def _weapon_files(w: dict, mod: str, essence_ref: str, palette: Optional[dict],
+                  visual_scale: float = 1.0) -> Tuple[List[GenFile], Dict[str, str], Canvas]:
     wid = w["id"]
     category = w.get("category")
     cat = _cat(category)
@@ -153,6 +265,8 @@ def _weapon_files(w: dict, mod: str, essence_ref: str, palette: Optional[dict]) 
     seed = zlib.crc32(wid.encode("utf-8"))
     try:
         sprite = sprites.render_weapon(category, w.get("appearance"), size, seed, palette)
+    except sprites.ShapeError as e:
+        raise BossForgeError("/weapons/%s/appearance" % wid, "unknown_value", str(e))
     except ValueError as e:
         raise BossForgeError("/weapons/%s/appearance" % wid, "bad_color", str(e))
     base = RES + "assets/%s/" % mod
@@ -160,7 +274,7 @@ def _weapon_files(w: dict, mod: str, essence_ref: str, palette: Optional[dict]) 
     if cat["model"]["kind"] == "separate_transforms":
         gui = sprite.downsampled(2)
         files.append(GenFile(base + "textures/item/%s_gui.png" % wid, _png(gui), "texture"))
-    files.append(GenFile(base + "models/item/%s.json" % wid, _dump(model_json(category, mod, wid)), "json"))
+    files.append(GenFile(base + "models/item/%s.json" % wid, _dump(model_json(category, mod, wid, visual_scale)), "json"))
     files.append(GenFile(RES + "data/%s/capabilities/weapons/%s.json" % (mod, wid), _dump(capability_json(w)), "json"))
     ob = w.get("obtain") or {}
     if ob.get("craft"):
@@ -195,8 +309,10 @@ def generate(n: dict, ctx) -> Tuple[List[GenFile], Dict[str, str]]:
     files: List[GenFile] = []
     lang: Dict[str, str] = {}
     sprs: List[Canvas] = []
+    boss_scale = (n.get("derived") or {}).get("scale")
     for w in n.get("weapons") or []:
-        wf, wl, sp = _weapon_files(w, mod, essence_ref, palette)
+        scale = effective_visual_scale(w, boss_scale, bool(n.get("main_weapon")) and w.get("id") == n.get("main_weapon"))
+        wf, wl, sp = _weapon_files(w, mod, essence_ref, palette, scale)
         files.extend(wf)
         lang.update(wl)
         sprs.append(sp)
@@ -235,6 +351,6 @@ def generate_standalone(w: dict, ctx, essence_item: Optional[str] = None) -> Tup
     essence = essence_item or w.get("essence_item") or "minecraft:diamond"
     if not RES_ID_RE.match(essence):
         raise BossForgeError("/essence_item", "bad_resource_id", "essence_item %r must be namespace:path" % (essence,))
-    files, lang, sprite = _weapon_files(w, mod, essence, None)
+    files, lang, sprite = _weapon_files(w, mod, essence, None, effective_visual_scale(w))
     files.append(_preview([sprite], "bossforge/previews/%s_weapon.png" % w["id"]))
     return files, lang

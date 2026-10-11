@@ -1,9 +1,17 @@
-"""Procedural boss skin: paints a texture onto the real Epic Fight mesh UV layout (pure Python).
+"""Procedural boss skin: paints a texture onto an Epic Fight mesh UV layout (pure Python).
+
+The mesh is either a stock EF mesh (biped / iron golem, fixed 64x64 / 128x128 layout times `texture.scale`)
+or a custom box-built model from `shape.build_model` (`tpl["custom"]`; its atlas size is final).
 
 Pipeline (see references/skin-forge.md): rasterize every mesh triangle into texture texels (later triangles
 overwrite earlier ones), build a surface context per texel (position, normal, face, region-local coordinates),
-shade base texels from the region material, overlay texels from the matching `overlay` entry, apply the
-appearance features in order, dilate one texel into unpainted gaps, and write the PNG.
+shade base texels from the box's own style (custom shapes) or the region material, overlay texels from the
+matching `overlay` entry, apply the appearance features in order, dilate one texel into unpainted gaps, and
+write the PNG.
+
+Custom templates (`tpl["custom"]`) additionally carry `part_style` (box id -> explicit material/color/accent,
+wins over region defaults), `part_regions` values of the form `box:<id>` (a private region whose bounding box is
+that single box), and `overlay_to_base` (appearance `overlay` entries are baked into base texels).
 """
 from __future__ import annotations
 
@@ -32,6 +40,8 @@ STRETCH_LIMIT = 8.0  # UV area / surface area (both in authored texels) above wh
 def _paint_order(mesh, tpl: dict) -> List[int]:
     """Triangle indices in painting order. Later wins, so triangles whose UV footprint is wildly larger than
     their surface (stray triangles in the Epic Fight golem arms) go first and never override real surfaces."""
+    if tpl.get("custom"):  # generated atlases have no stray triangles and a per-box texel density
+        return list(range(len(mesh.tris)))
     aw, ah = tpl["authored_uv"]
     stray = []  # type: List[int]
     normal = []  # type: List[int]
@@ -77,6 +87,35 @@ def _rasterize(mesh, tpl: dict, w: int, h: int) -> Dict[Tuple[int, int], Tuple[i
                 if l0 >= -_EPS and l1 >= -_EPS and l2 >= -_EPS:
                     cover[(px, py)] = (ti, l0, l1, l2)
     return cover
+
+
+def _tri_texel_sizes(mesh, w: int, h: int) -> List[float]:
+    """Texel edge length in blocks for every triangle (sqrt of surface area / UV area in texels)."""
+    pos, uvs = mesh.positions, mesh.uvs
+    out = []  # type: List[Optional[float]]
+    good = []  # type: List[float]
+    for tri in mesh.tris:
+        a, b, c = pos[tri.p[0]], pos[tri.p[1]], pos[tri.p[2]]
+        ux, uy, uz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+        vx, vy, vz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
+        cx, cy, cz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+        surface = 0.5 * math.sqrt(cx * cx + cy * cy + cz * cz)
+        (u0, v0), (u1, v1), (u2, v2) = [(uvs[i][0] * w, uvs[i][1] * h) for i in tri.t]
+        uv_area = abs((u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0)) * 0.5
+        if surface > 1e-9 and uv_area > 1e-6:
+            v = math.sqrt(surface / uv_area)
+            out.append(v)
+            good.append(v)
+        else:
+            out.append(None)
+    good.sort()
+    fallback = good[len(good) // 2] if good else 1.0 / 32.0
+    return [fallback if v is None else v for v in out]
+
+
+def _pattern_step(tb: float) -> int:
+    """Texels per 1/32 block (>= 1): weave patterns span this many texels so they keep their size in blocks."""
+    return max(1, int(round(1.0 / (32.0 * tb))))
 
 
 def _region_boxes(mesh, overlay_parts) -> Dict[Optional[str], Tuple[List[float], List[float]]]:
@@ -126,8 +165,10 @@ def _classify(n, front_sign: int, right_sign: int) -> str:
     return "side"
 
 
-def _build_texels(mesh, tpl: dict, cover, overlay_parts, front_sign: int, right_sign: int, tb: float) -> List[Texel]:
+def _build_texels(mesh, tpl: dict, cover, overlay_parts, front_sign: int, right_sign: int, tb: float,
+                  tri_tb: Optional[List[float]] = None) -> List[Texel]:
     boxes = _region_boxes(mesh, overlay_parts)
+    styles = tpl.get("part_style") or {}
     pos = mesh.positions
     nrm = mesh.normals
     out = []  # type: List[Texel]
@@ -155,7 +196,9 @@ def _build_texels(mesh, tpl: dict, cover, overlay_parts, front_sign: int, right_
         region = mesh.region_of(tri.part)
         t.region = region
         t.layer = "overlay" if tri.part in overlay_parts else "base"
-        t.tb = tb
+        t.styled = tri.part in styles
+        t.tb = tb if tri_tb is None else tri_tb[ti]
+        t.m = _pattern_step(t.tb)
         box = boxes.get(region)
         if box is None:
             lo, hi = [px - 0.5, py - 0.5, pz - 0.5], [px + 0.5, py + 0.5, pz + 0.5]
@@ -205,6 +248,17 @@ def _entry_for(regions: dict, region: Optional[str], ly: float) -> dict:
     return regions.get("torso") or DEFAULT_ENTRY
 
 
+def _entry_with_style(base: dict, style: Optional[dict]) -> dict:
+    """A box's own material/color/accent win over the region default entry."""
+    if not style:
+        return base
+    merged = dict(base)
+    for k in ("material", "color", "accent"):
+        if style.get(k) is not None:
+            merged[k] = style[k]
+    return merged
+
+
 class _Overlay:
     def __init__(self, entry: dict):
         self.sel = RegionSel([entry.get("region")]) if entry.get("region") else RegionSel([])
@@ -235,19 +289,27 @@ def paint(mesh, tpl: dict, ap: dict, seed: int, front_sign: Optional[int] = None
 
     Returns ``(canvas, info)``; info = {coverage, base_texels, overlay_texels, overlay_opaque, warnings}.
     """
-    scale = int((ap.get("texture") or {}).get("scale", 2))
+    custom = bool(tpl.get("custom"))
     aw, ah = tpl["authored_uv"]
-    w, h = aw * scale, ah * scale
+    if custom:  # the atlas size is final; texel density is whatever the shape builder chose
+        w, h = int(aw), int(ah)
+        too_large = ("/shape/texture/density", "lower shape.texture.density")
+    else:
+        scale = int((ap.get("texture") or {}).get("scale", 2))
+        w, h = aw * scale, ah * scale
+        too_large = ("/appearance/texture/scale", "lower texture.scale")
     if max(w, h) > MAX_TEXTURE_EDGE:
-        raise BossForgeError("/appearance/texture/scale", "texture_too_large",
-                             "texture %dx%d exceeds %d; lower texture.scale" % (w, h, MAX_TEXTURE_EDGE))
+        raise BossForgeError(too_large[0], "texture_too_large",
+                             "texture %dx%d exceeds %d; %s" % (w, h, MAX_TEXTURE_EDGE, too_large[1]))
     fs, rs = efmesh.frame(mesh, tpl)
+    if tpl.get("right_sign") is not None:
+        rs = int(tpl["right_sign"])
     if front_sign is not None:
         fs = front_sign
     if right_sign is not None:
         rs = right_sign
-    tb = 1.0 / (16.0 * scale)
     overlay_parts = set(tpl.get("overlay_parts") or [])
+    styles = tpl.get("part_style") or {}
     palette = dict(ap.get("palette") or {})
     for key in ("primary", "secondary", "accent", "skin", "hair", "eyes"):
         palette.setdefault(key, "#808080")
@@ -255,7 +317,12 @@ def paint(mesh, tpl: dict, ap: dict, seed: int, front_sign: Optional[int] = None
     warnings = []  # type: List[dict]
 
     cover = _rasterize(mesh, tpl, w, h)
-    texels = _build_texels(mesh, tpl, cover, overlay_parts, fs, rs, tb)
+    if custom:
+        tb = 1.0 / 32.0
+        texels = _build_texels(mesh, tpl, cover, overlay_parts, fs, rs, tb, _tri_texel_sizes(mesh, w, h))
+    else:
+        tb = 1.0 / (16.0 * scale)
+        texels = _build_texels(mesh, tpl, cover, overlay_parts, fs, rs, tb)
 
     overlay_entries = [e for e in (ap.get("overlay") or []) if isinstance(e, dict)]
     # `arms` / `legs` overlay regions expand to both limbs
@@ -265,20 +332,24 @@ def paint(mesh, tpl: dict, ap: dict, seed: int, front_sign: Optional[int] = None
             ee = dict(e)
             ee["region"] = r
             expanded.append(_Overlay(ee))
-    has_overlay_layer = bool(overlay_parts)
+    overlay_to_base = bool(tpl.get("overlay_to_base"))
+    has_overlay_layer = bool(overlay_parts) or overlay_to_base
     if overlay_entries and not has_overlay_layer:
         warnings.append(Err("/appearance/overlay", "overlay_ignored",
                             "template has no overlay layer; overlay entries are ignored").to_dict())
         expanded = []
     overlay_enabled = bool(ap.get("overlay_enabled", True))
+    bake = overlay_to_base or not overlay_enabled  # overlay entries paint base texels instead of overlay islands
 
     for t in texels:
         if t.layer == "base":
-            t.rgb = _shade_entry(_entry_for(regions, t.region, t.ly), t, palette, seed)
-            if not overlay_enabled:
+            style = styles.get(t.part)
+            t.rgb = _shade_entry(_entry_with_style(_entry_for(regions, t.region, t.ly), style), t, palette, seed)
+            if bake and not style:
                 for o in expanded:
                     if o.matches(t):
                         t.rgb = _shade_entry(o.entry, t, palette, seed)
+                        t.covered = True
         elif overlay_enabled:
             hit = None
             for o in expanded:
@@ -346,13 +417,26 @@ def coverage_of(canvas: Canvas, mesh, tpl: dict) -> float:
 
 
 # --------------------------------------------------------------------------- generator entry points
+def _err_dict(e) -> dict:
+    return e.to_dict() if hasattr(e, "to_dict") else dict(e)
+
+
 def generate_with_report(n: dict, ctx):
-    """(files, lang, report) for a normalized spec."""
+    """(files, lang, report) for a normalized spec. Custom shapes (`derived.custom`) paint the box-built model."""
     d = n.get("derived") or {}
     template = d.get("template")
-    if not template:
-        raise BossForgeError("/body/template", "no_template", "no body template could be resolved from size/body/weapon")
-    mesh, tpl = efmesh.load_for_template(ctx, template)
+    custom = bool(d.get("custom"))
+    shape_warnings = []  # type: List[dict]
+    if custom:
+        from . import shape  # lazy: stock bosses never need the shape builder
+        model = shape.build_model(n, ctx)
+        mesh, tpl = model.mesh, model.tpl
+        shape_warnings = [_err_dict(w) for w in (model.warnings or [])]
+        template = template or "biped"
+    else:
+        if not template:
+            raise BossForgeError("/body/template", "no_template", "no body template could be resolved from size/body/weapon")
+        mesh, tpl = efmesh.load_for_template(ctx, template)
     ap = n["appearance"]
     canvas, info = paint(mesh, tpl, ap, int(n["seed"]))
     preview = render_preview(mesh, tpl, canvas)
@@ -361,7 +445,7 @@ def generate_with_report(n: dict, ctx):
     tex_rel = "src/main/resources/assets/%s/textures/entity/%s.png" % (n["mod_id"], n["id"])
     prev_rel = "bossforge/previews/%s_preview.png" % n["id"]
     files = [GenFile(tex_rel, tex_bytes, "texture"), GenFile(prev_rel, prev_bytes, "preview")]
-    warnings = list(d.get("warnings") or []) + list(info["warnings"])
+    warnings = [_err_dict(w) for w in (d.get("warnings") or [])] + shape_warnings + list(info["warnings"])
     report = {
         "texture": {"path": tex_rel, "width": canvas.w, "height": canvas.h, "coverage": info["coverage"]},
         "preview": prev_rel,
@@ -370,6 +454,10 @@ def generate_with_report(n: dict, ctx):
         "hitbox": d.get("hitbox"),
         "warnings": warnings,
     }
+    if custom:
+        report["custom"] = True
+        report["atlas"] = [canvas.w, canvas.h]
+        report["shape_warnings"] = shape_warnings
     return files, {}, report
 
 

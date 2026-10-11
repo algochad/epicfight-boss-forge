@@ -2,7 +2,9 @@
 
 Every feature is ``fn(state, feature_dict)``; it edits ``Texel.rgb`` in place. Face-local coordinates are
 ``fu`` (0 viewer-left .. 1 viewer-right, looking at the face from outside) and ``fv`` (0 top .. 1 bottom).
-Features that name a region the template does not have simply match no texel.
+Features that name a region the template does not have simply match no texel. Texels of custom-shape boxes
+that carry their own style live in a private ``box:<id>`` region: feature defaults ("all regions") never touch
+them, only a feature that names that region does.
 """
 from __future__ import annotations
 
@@ -29,9 +31,9 @@ GLYPHS = (
     (".##", "#..", ".#.", "..#", "##."),  # G5
     ("###", ".#.", "###", ".#.", "###"),  # G6
 )
-RUNE_PIXEL = 0.0625  # block size of one glyph pixel (one authored texel)
-RUNE_CELL_W = 0.25
-RUNE_CELL_H = 0.375
+RUNE_PIXEL = 0.0625  # block size of one glyph pixel (1/16 block, never below one texel)
+RUNE_CELL_COLS = 4  # a cell is 4 x 6 glyph pixels: the 3 x 5 glyph plus a one-pixel margin
+RUNE_CELL_ROWS = 6
 
 
 def expand_regions(names: Optional[Iterable[str]]) -> List[str]:
@@ -71,6 +73,15 @@ class RegionSel:
         if self.feet and r in LEG_REGIONS and t.ly < FEET_MAX_LY:
             return True
         return False
+
+
+def is_private_region(region: Optional[str]) -> bool:
+    return region is not None and region.startswith("box:")
+
+
+def default_region(t: Texel) -> bool:
+    """Default target of features without a `regions` list: everything except private custom-box regions."""
+    return not is_private_region(t.region)
 
 
 class PaintState:
@@ -116,12 +127,13 @@ def _num(v, default: float, lo: Optional[float] = None, hi: Optional[float] = No
 
 
 def _head_front(st: PaintState) -> List[Texel]:
-    return [t for t in st.texels if t.layer == "base" and t.region == "head" and t.face == "front"]
+    """Base-layer head texels facing front; texels an overlay entry covers (a crown, a helm) are armor, not skin."""
+    return [t for t in st.texels if t.layer == "base" and t.region == "head" and t.face == "front" and not t.covered]
 
 
 def _tex_face(st: PaintState, t: Texel) -> Tuple[float, float]:
     """Texel size in face-local (fu, fv) units."""
-    return st.tb / max(t.eh, 1e-6), st.tb / max(t.ev, 1e-6)
+    return t.tb / max(t.eh, 1e-6), t.tb / max(t.ev, 1e-6)
 
 
 def _bright(c: RGB, f: float) -> RGB:
@@ -220,7 +232,7 @@ def hair(st: PaintState, f: dict) -> None:
     col = st.color(f.get("color"), "hair")
     seed = st.seed
     for t in st.texels:
-        if t.layer != "base" or t.region != "head":
+        if t.layer != "base" or t.region != "head" or t.styled or t.covered:
             continue
         front = t.face == "front"
         if style == "hood":
@@ -245,6 +257,8 @@ def beard(st: PaintState, f: dict) -> None:
     limit = 0.60 if length == "long" else 0.68
     seed = st.seed
     for t in st.texels:
+        if t.styled or t.covered:
+            continue
         if t.region == "head" and t.layer == "base":
             hit = False
             if t.face == "front" and t.fv > limit and 0.12 <= t.fu <= 0.88:
@@ -318,7 +332,7 @@ def trim(st: PaintState, f: dict) -> None:
     for t in st.texels:
         if t.rgb is None or not sel.match(t):
             continue
-        w = max(width, st.tb / max(t.ev, 1e-6))
+        w = max(width, t.tb / max(t.ev, 1e-6))
         ly = t.ly
         if where == "collar":
             hit = ly > 1.0 - w
@@ -337,17 +351,17 @@ def plates(st: PaintState, f: dict) -> None:
         selected = sel.match
     else:
         def selected(t: Texel) -> bool:
-            return t.region is not None and t.region != "head"
+            return t.region is not None and t.region != "head" and not is_private_region(t.region)
     spacing = _num(f.get("spacing"), 0.35, 0.05, 2.0)
     seam_ref = f.get("color")
     seam = st.color(seam_ref, "primary") if seam_ref is not None else None
-    tb = st.tb
     period_v = spacing * 1.4
-    half_y = 0.5 * max(0.06 * spacing, tb)
-    half_x = 0.5 * max(0.05 * period_v, tb)
     for t in st.texels:
         if t.rgb is None or not selected(t):
             continue
+        tb = t.tb
+        half_y = 0.5 * max(0.06 * spacing, tb)
+        half_x = 0.5 * max(0.05 * period_v, tb)
         bx, by, bz = t.pos
         dy = abs(by - math.floor(by / spacing + 0.5) * spacing)
         sxz = bx + bz
@@ -372,13 +386,13 @@ def cracks(st: PaintState, f: dict) -> None:
     thr0 = 0.02 + 0.05 * density
     patch_limit = 0.15 + 0.45 * density
     for t in st.texels:
-        if t.rgb is None or (sel is not None and not sel.match(t)):
+        if t.rgb is None or not (sel.match(t) if sel is not None else default_region(t)):
             continue
         bx, by, bz = t.pos
         if fbm(bx * 1.7, by * 1.7, bz * 1.7, 2, seed + 102) > patch_limit:
             continue
         f1, f2 = worley(bx * 3.5, by * 3.5, bz * 3.5, seed + 100)
-        if f2 - f1 < max(thr0, st.tb * 2.0):
+        if f2 - f1 < max(thr0, t.tb * 2.0):
             t.rgb = glow
 
 
@@ -386,7 +400,7 @@ def wear(st: PaintState, f: dict) -> None:
     amount = _num(f.get("amount"), 0.5, 0.0, 1.0)
     seed = st.seed
     for t in st.texels:
-        if t.rgb is None:
+        if t.rgb is None or not default_region(t):
             continue
         bx, by, bz = t.pos
         k = 1.0
@@ -407,16 +421,20 @@ def runes(st: PaintState, f: dict) -> None:
     for t in st.texels:
         if t.rgb is None or t.face not in ("front", "back") or not sel.match(t):
             continue
+        # glyph pixel: 1/16 block, a whole number of texels when the texture is dense enough
+        px = t.tb * max(1, round(RUNE_PIXEL / t.tb))
+        cell_w = px * RUNE_CELL_COLS
+        cell_h = px * RUNE_CELL_ROWS
         bx, by, bz = t.pos
         u = bx * t.vr  # world x along the viewer's right for this face
         v = -by
-        cu = math.floor(u / RUNE_CELL_W)
-        cv = math.floor(v / RUNE_CELL_H)
+        cu = math.floor(u / cell_w)
+        cv = math.floor(v / cell_h)
         iz = 0 if t.face == "front" else 1
         if hash01(cu, cv, iz, seed + 120) >= density:
             continue
-        gx = math.floor((u - cu * RUNE_CELL_W - (RUNE_CELL_W - 3 * RUNE_PIXEL) * 0.5) / RUNE_PIXEL)
-        gy = math.floor((v - cv * RUNE_CELL_H - (RUNE_CELL_H - 5 * RUNE_PIXEL) * 0.5) / RUNE_PIXEL)
+        gx = math.floor((u - cu * cell_w - (cell_w - 3 * px) * 0.5) / px)
+        gy = math.floor((v - cv * cell_h - (cell_h - 5 * px) * 0.5) / px)
         if not (0 <= gx < 3 and 0 <= gy < 5):
             continue
         glyph = GLYPHS[min(5, int(hash01(cu, cv, iz, seed + 121) * 6))]

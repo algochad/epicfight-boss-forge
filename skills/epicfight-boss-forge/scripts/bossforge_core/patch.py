@@ -75,7 +75,7 @@ def build(n: dict) -> dict:
     if not isinstance(faction, str) or not faction:
         raise BossForgeError("/faction", "required", "faction is missing")
     out: Dict[str, object] = {
-        "model": tpl["model_id"],
+        "model": (n.get("derived") or {}).get("model_id") or tpl["model_id"],
         "armature": tpl["armature_id"],
         "renderer": tpl["renderer"],
         "isHumanoid": bool(tpl["humanoid"]),

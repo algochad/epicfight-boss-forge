@@ -84,6 +84,64 @@ class ValidationTests(unittest.TestCase):
         self.assertIn("recipe_invalid", codes(s))
 
 
+class ShapeSpecTests(unittest.TestCase):
+    def shaped(self, **shape):
+        s = load()
+        s["shape"] = shape
+        return s
+
+    def test_shape_makes_a_custom_biped_with_scale_from_the_mesh_height(self):
+        n, errs, _w = spec.check(self.shaped(silhouette="knight", proportions={"head": 1.3}))
+        self.assertEqual(errs, [])
+        d = n["derived"]
+        self.assertTrue(d["custom"])
+        self.assertEqual(d["template"], "biped")
+        self.assertEqual(d["model_id"], "roundtable:entity/king_arthur")
+        self.assertEqual(d["scale"], round(3.0 / d["model_height"], 3))
+        self.assertGreater(d["model_height"], 2.0)  # crown/plume/big head make the mesh taller than the stock biped
+
+    def test_shape_errors_carry_pointers_under_shape(self):
+        cases = [
+            (dict(silhouette="pirate"), "unknown_silhouette", "/shape"),
+            (dict(proportions={"head": 9}), "out_of_range", "/shape/proportions/head"),
+            (dict(attachments=[{"preset": "tentacles"}]), "unknown_preset", "/shape/attachments/0"),
+            (dict(parts=[{"id": "x", "bone": "wing", "min": [0, 0, 0], "size": [1, 1, 1]}]), "bad_bone", "/shape/parts/0"),
+        ]
+        for shape, code, prefix in cases:
+            errs = spec.validate(self.shaped(**shape))
+            self.assertTrue(any(e.code == code and e.path.startswith(prefix) for e in errs), (code, [e.to_dict() for e in errs]))
+
+    def test_shape_conflicts_with_the_golem_template(self):
+        s = self.shaped(silhouette="brute")
+        s["body"] = {"template": "iron_golem"}
+        self.assertIn("shape_requires_biped", codes(s))
+
+    def test_init_gives_every_archetype_a_valid_shape_unless_disabled(self):
+        import contextlib, io, tempfile
+        from pathlib import Path
+        from bossforge_core.cli import main
+        with tempfile.TemporaryDirectory() as d:
+            for arch in spec.data("archetypes"):
+                out = Path(d) / (arch + ".json")
+                with contextlib.redirect_stdout(io.StringIO()):
+                    code = main(["init", "--id", "test_boss", "--name", "Test Boss", "--mod-id", "testmod", "--tier", "major",
+                                 "--archetype", arch, "--out", str(out)])
+                self.assertEqual(code, 0, arch)
+                raw = json.loads(out.read_text())
+                self.assertIn("silhouette", raw["shape"], arch)
+            with contextlib.redirect_stdout(io.StringIO()):
+                main(["init", "--id", "test_boss", "--name", "Test Boss", "--mod-id", "testmod", "--tier", "major",
+                      "--silhouette", "none", "--out", str(Path(d) / "stock.json")])
+            self.assertNotIn("shape", json.loads((Path(d) / "stock.json").read_text()))
+
+    def test_shipped_example_is_a_valid_custom_shape(self):
+        from _path import SHIPPED_EXAMPLE
+        raw = json.loads(SHIPPED_EXAMPLE.read_text(encoding="utf-8"))
+        n, errs, warns = spec.check(raw)
+        self.assertEqual(errs, [])
+        self.assertTrue(n["derived"]["custom"])
+
+
 class DataTests(unittest.TestCase):
     def test_tier_rows_match_plan(self):
         t = spec.data("tiers")

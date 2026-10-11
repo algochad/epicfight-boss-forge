@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from typing import Optional
 
 from . import efmesh
 from .pngio import Canvas, hconcat
@@ -12,6 +13,9 @@ BG = (36, 40, 50, 255)
 ALPHA_MIN = 26
 PITCH_DEG = 14.0
 VIEWS = (("front", 0.0), ("three_quarter", 35.0), ("back", 180.0))
+CUSTOM_VIEWS = (("front", 0.0), ("three_quarter", 35.0), ("side", 90.0), ("back", 180.0))  # wings / tails need a side view
+FIT = 0.9  # fraction of the panel the model may fill
+MAX_WIDE_PANEL_W = 480  # custom shapes wider than tall get wider view panels, up to this
 _L = (-0.3, 0.6, 0.74)
 _LL = math.sqrt(sum(c * c for c in _L))
 LIGHT = (_L[0] / _LL, _L[1] / _LL, _L[2] / _LL)
@@ -26,9 +30,44 @@ def _rotate(v, flip: bool, cy: float, sy: float, cp: float, sp: float):
     return (x2, y * cp - z2 * sp, y * sp + z2 * cp)
 
 
+def _projected_extents(mesh, flip: bool, yaw_deg: float):
+    """(xmin, xmax, ymin, ymax) of the mesh in screen space (model units) for one view."""
+    yaw = math.radians(yaw_deg)
+    pitch = math.radians(PITCH_DEG)
+    cy, sy, cp, sp = math.cos(yaw), math.sin(yaw), math.cos(pitch), math.sin(pitch)
+    pts = [_rotate(p, flip, cy, sy, cp, sp) for p in mesh.positions]
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    return min(xs), max(xs), min(ys), max(ys)
+
+
+def fit_scale(mesh, front_sign: int, yaws, panel_w: int = PANEL_W, panel_h: int = PANEL_H) -> float:
+    """Pixels per model unit so that the given views fit both the panel height and width."""
+    flip = front_sign < 0
+    best = 1e18
+    for yaw in yaws:
+        x0, x1, y0, y1 = _projected_extents(mesh, flip, yaw)
+        best = min(best, FIT * panel_h / max(y1 - y0, 1e-6), FIT * panel_w / max(x1 - x0, 1e-6))
+    return best
+
+
+def view_panel_width(mesh, front_sign: int, yaws) -> int:
+    """Width of every view panel of a custom shape: PANEL_W, widened (up to MAX_WIDE_PANEL_W) when the model is
+    wider than the panel allows at its full-height scale (wings, big pauldrons), so faces stay readable."""
+    flip = front_sign < 0
+    ext = [_projected_extents(mesh, flip, yaw) for yaw in yaws]
+    width = max(e[1] - e[0] for e in ext)
+    full_height = fit_scale(mesh, front_sign, yaws, panel_w=10 ** 6)
+    need = int(math.ceil(width * full_height / FIT))
+    return max(PANEL_W, min(MAX_WIDE_PANEL_W, need))
+
+
 def render_view(mesh, tpl: dict, tex: Canvas, yaw_deg: float, front_sign: int,
-                panel_w: int = PANEL_W, panel_h: int = PANEL_H) -> Canvas:
-    """One orthographic view. yaw 0 = looking at the character's front."""
+                panel_w: int = PANEL_W, panel_h: int = PANEL_H, scale: Optional[float] = None) -> Canvas:
+    """One orthographic view. yaw 0 = looking at the character's front.
+
+    ``scale`` (pixels per model unit) switches to fit-to-bounds framing: the view is centred on its own
+    projected extents (stock meshes keep the original height-fitted, model-centred framing)."""
     out = Canvas(panel_w, panel_h)
     out.fill(BG)
     od = out.data
@@ -37,10 +76,14 @@ def render_view(mesh, tpl: dict, tex: Canvas, yaw_deg: float, front_sign: int,
     yaw = math.radians(yaw_deg)
     pitch = math.radians(PITCH_DEG)
     cy, sy, cp, sp = math.cos(yaw), math.sin(yaw), math.cos(pitch), math.sin(pitch)
-    (xmin, ymin, zmin), (xmax, ymax, zmax) = mesh.bounds()
-    height = max(ymax - ymin, 1e-6)
-    scale = 0.9 * panel_h / height
-    cen = _rotate(((xmin + xmax) / 2.0, (ymin + ymax) / 2.0, (zmin + zmax) / 2.0), flip, cy, sy, cp, sp)
+    if scale is None:
+        (xmin, ymin, zmin), (xmax, ymax, zmax) = mesh.bounds()
+        height = max(ymax - ymin, 1e-6)
+        scale = 0.9 * panel_h / height
+        cen = _rotate(((xmin + xmax) / 2.0, (ymin + ymax) / 2.0, (zmin + zmax) / 2.0), flip, cy, sy, cp, sp)
+    else:
+        x0, x1, y0, y1 = _projected_extents(mesh, flip, yaw_deg)
+        cen = ((x0 + x1) / 2.0, (y0 + y1) / 2.0, 0.0)
     pts = []
     for p in mesh.positions:
         x, y, z = _rotate(p, flip, cy, sy, cp, sp)
@@ -149,8 +192,18 @@ def texture_panel(tex: Canvas, panel_h: int = PANEL_H) -> Canvas:
 
 
 def render_preview(mesh, tpl: dict, tex: Canvas) -> Canvas:
-    """Front, three-quarter and back panels plus the texture sheet, side by side."""
+    """Front, three-quarter and back panels plus the texture sheet, side by side.
+
+    Custom shapes get a side panel as well (wings, tails) and one scale that fits every view in both height and
+    width, so wide models (wings, big pauldrons) are never clipped and the panels stay comparable; panels widen
+    up to MAX_WIDE_PANEL_W for wide models (see view_panel_width)."""
     front_sign, _ = efmesh.frame(mesh, tpl)
-    panels = [render_view(mesh, tpl, tex, yaw, front_sign) for _, yaw in VIEWS]
+    if tpl.get("custom"):
+        yaws = [yaw for _, yaw in CUSTOM_VIEWS]
+        pw = view_panel_width(mesh, front_sign, yaws)
+        scale = fit_scale(mesh, front_sign, yaws, panel_w=pw)  # one scale for all views, so panels stay comparable
+        panels = [render_view(mesh, tpl, tex, yaw, front_sign, panel_w=pw, scale=scale) for yaw in yaws]
+    else:
+        panels = [render_view(mesh, tpl, tex, yaw, front_sign) for _, yaw in VIEWS]
     panels.append(texture_panel(tex))
     return hconcat(panels, gap=4, bg=BG)

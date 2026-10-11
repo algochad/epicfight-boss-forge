@@ -1,0 +1,222 @@
+{
+  "biped": {
+    "armature": "epicfight:entity/biped",
+    "reference_height": 2.0,
+    "joints": [
+      {
+        "index": 0,
+        "name": "Root",
+        "pos": [
+          -0.0,
+          0.764,
+          -0.0009
+        ]
+      },
+      {
+        "index": 1,
+        "name": "Thigh_R",
+        "pos": [
+          0.125,
+          0.7611,
+          -0.001
+        ]
+      },
+      {
+        "index": 2,
+        "name": "Leg_R",
+        "pos": [
+          0.125,
+          0.3864,
+          -0.001
+        ]
+      },
+      {
+        "index": 3,
+        "name": "Knee_R",
+        "pos": [
+          0.125,
+          0.3864,
+          -0.001
+        ]
+      },
+      {
+        "index": 4,
+        "name": "Thigh_L",
+        "pos": [
+          -0.125,
+          0.7611,
+          -0.001
+        ]
+      },
+      {
+        "index": 5,
+        "name": "Leg_L",
+        "pos": [
+          -0.125,
+          0.3864,
+          -0.001
+        ]
+      },
+      {
+        "index": 6,
+        "name": "Knee_L",
+        "pos": [
+          -0.125,
+          0.3864,
+          -0.001
+        ]
+      },
+      {
+        "index": 7,
+        "name": "Torso",
+        "pos": [
+          -0.0,
+          0.814,
+          -0.0009
+        ]
+      },
+      {
+        "index": 8,
+        "name": "Chest",
+        "pos": [
+          -0.0,
+          1.114,
+          -0.0009
+        ]
+      },
+      {
+        "index": 9,
+        "name": "Head",
+        "pos": [
+          -0.0,
+          1.514,
+          -0.0009
+        ]
+      },
+      {
+        "index": 10,
+        "name": "Shoulder_R",
+        "pos": [
+          -0.0,
+          1.514,
+          -0.0009
+        ]
+      },
+      {
+        "index": 11,
+        "name": "Arm_R",
+        "pos": [
+          0.375,
+          1.3936,
+          -0.0009
+        ]
+      },
+      {
+        "index": 12,
+        "name": "Hand_R",
+        "pos": [
+          0.375,
+          1.0936,
+          -0.0009
+        ]
+      },
+      {
+        "index": 13,
+        "name": "Tool_R",
+        "pos": [
+          0.375,
+          0.8223,
+          0.0291
+        ]
+      },
+      {
+        "index": 14,
+        "name": "Elbow_R",
+        "pos": [
+          0.375,
+          1.0936,
+          -0.0009
+        ]
+      },
+      {
+        "index": 15,
+        "name": "Shoulder_L",
+        "pos": [
+          -0.0,
+          1.514,
+          -0.0009
+        ]
+      },
+      {
+        "index": 16,
+        "name": "Arm_L",
+        "pos": [
+          -0.375,
+          1.3936,
+          -0.0009
+        ]
+      },
+      {
+        "index": 17,
+        "name": "Hand_L",
+        "pos": [
+          -0.375,
+          1.0936,
+          -0.0009
+        ]
+      },
+      {
+        "index": 18,
+        "name": "Tool_L",
+        "pos": [
+          -0.375,
+          0.8223,
+          0.0291
+        ]
+      },
+      {
+        "index": 19,
+        "name": "Elbow_L",
+        "pos": [
+          -0.375,
+          1.0936,
+          -0.0009
+        ]
+      }
+    ],
+    "bones": {
+      "root": "Root",
+      "torso": "Torso",
+      "chest": "Chest",
+      "head": "Head",
+      "arm_r": "Arm_R",
+      "forearm_r": "Hand_R",
+      "hand_r": "Tool_R",
+      "arm_l": "Arm_L",
+      "forearm_l": "Hand_L",
+      "hand_l": "Tool_L",
+      "thigh_r": "Thigh_R",
+      "shin_r": "Leg_R",
+      "thigh_l": "Thigh_L",
+      "shin_l": "Leg_L"
+    },
+    "anatomy": {
+      "feet_y": 0.0,
+      "knee_y": 0.386,
+      "hip_y": 0.761,
+      "waist_y": 0.814,
+      "chest_y": 1.114,
+      "neck_y": 1.514,
+      "head_top_y": 2.0,
+      "shoulder_y": 1.394,
+      "elbow_y": 1.094,
+      "wrist_y": 0.822,
+      "arm_x": 0.375,
+      "leg_x": 0.125,
+      "torso_half_width": 0.25,
+      "head_size": 0.5,
+      "front_z": -1,
+      "note": "y up, feet at 0, character's right = +x, front = -z"
+    }
+  }
+}

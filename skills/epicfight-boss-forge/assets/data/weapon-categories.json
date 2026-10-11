@@ -16,6 +16,17 @@
       "kind": "handheld",
       "parent": "minecraft:item/handheld",
       "size": 16
+    },
+    "shapes": {
+      "default": "straight",
+      "allowed": [
+        "straight",
+        "broad",
+        "leaf",
+        "wavy",
+        "serrated",
+        "hooked"
+      ]
     }
   },
   "axe": {
@@ -35,6 +46,15 @@
       "kind": "handheld",
       "parent": "minecraft:item/handheld",
       "size": 16
+    },
+    "shapes": {
+      "default": "broad",
+      "allowed": [
+        "broad",
+        "crescent",
+        "double",
+        "cleaver"
+      ]
     }
   },
   "dagger": {
@@ -54,6 +74,16 @@
       "kind": "epic_parent",
       "parent": "epicfight:item/dagger",
       "size": 16
+    },
+    "shapes": {
+      "default": "straight",
+      "allowed": [
+        "straight",
+        "leaf",
+        "wavy",
+        "serrated",
+        "hooked"
+      ]
     }
   },
   "longsword": {
@@ -74,6 +104,16 @@
       "parent": "epicfight:item/longsword",
       "size": 32,
       "gui_size": 16
+    },
+    "shapes": {
+      "default": "straight",
+      "allowed": [
+        "straight",
+        "broad",
+        "leaf",
+        "wavy",
+        "serrated"
+      ]
     }
   },
   "greatsword": {
@@ -94,6 +134,15 @@
       "parent": "epicfight:item/greatsword",
       "size": 32,
       "gui_size": 16
+    },
+    "shapes": {
+      "default": "broad",
+      "allowed": [
+        "broad",
+        "cleaver",
+        "wavy",
+        "serrated"
+      ]
     }
   },
   "tachi": {
@@ -114,6 +163,14 @@
       "parent": "epicfight:item/tachi",
       "size": 32,
       "gui_size": 16
+    },
+    "shapes": {
+      "default": "curved",
+      "allowed": [
+        "curved",
+        "straight",
+        "hooked"
+      ]
     }
   },
   "spear": {
@@ -139,6 +196,15 @@
       "parent": "epicfight:item/spear",
       "size": 32,
       "gui_size": 16
+    },
+    "shapes": {
+      "default": "leaf",
+      "allowed": [
+        "leaf",
+        "trident",
+        "hooked",
+        "broad"
+      ]
     }
   }
 }

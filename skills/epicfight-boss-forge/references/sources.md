@@ -8,7 +8,7 @@ Epic Fight (branch 1.20.1, https://github.com/Epic-Fight/epicfight/tree/1.20.1; 
 - `.../client/events/engine/RenderEngine.java` (renderer keys)
 - `.../world/capabilities/entitypatch/mob/CustomMobPatch.java`, `HumanoidMobPatch.java`
 - `.../world/entity/ai/attribute` and `HealthPoint.java` (health predicate)
-- Mesh assets: `src/main/resources/assets/epicfight/animmodels/entity/<name>.json`
+- Mesh assets: `src/main/resources/assets/epicfight/animmodels/entity/<name>.json`; mesh format read from `yesman.epicfight.api.asset.JsonAssetLoader`, `Meshes` and `HumanoidMesh` in the 20.14.17 jar (custom meshes are validated by loading them with the real `JsonAssetLoader`)
 - Docs repo https://github.com/Epic-Fight/epic-fight.github.io: `docs/Guides/Entities/page1.en.md`, `docs/Guides/Weapons/page1.en.md`, `docs/API/Starting.en.md`
 - Blender exporter https://github.com/Epic-Fight/blender-json-exporter
 - Gradle dependency: Modrinth Maven `maven.modrinth:epic-fight:20.14.17-mc1.20.1-forge`

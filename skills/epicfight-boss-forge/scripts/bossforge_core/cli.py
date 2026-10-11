@@ -93,6 +93,12 @@ def cmd_list(args) -> int:
     if what == "animations":
         from . import catalog
         return _out({"ok": True, "animations": catalog.list_keys(args.prefix or "")})
+    if what == "silhouettes":
+        from . import presets
+        return _out({"ok": True, "silhouettes": {k: presets.silhouette(k) for k in presets.list_silhouettes()}})
+    if what == "presets":
+        from . import presets
+        return _out({"ok": True, "presets": {k: presets.PRESETS[k] for k in presets.list_presets()}})
     return _out({"ok": False, "errors": [{"path": "", "code": "unknown_value", "message": what}]}, 2)
 
 
@@ -121,6 +127,10 @@ def cmd_init(args) -> int:
         wid = _snake(args.weapon_name) if args.weapon_name else _snake(args.id + "_" + args.weapon_category)
         sp["weapons"] = [{"id": wid, "display_name": wname, "category": args.weapon_category}]
         sp["main_weapon"] = wid
+    sil = args.silhouette
+    if sil != "none" and (args.template or "auto") != "iron_golem":
+        from . import presets
+        sp["shape"] = {"silhouette": sil or presets.default_silhouette(arch)}
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(sp, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     errs = S.validate(sp)
@@ -134,7 +144,8 @@ def cmd_validate(args) -> int:
         return _out({"ok": not errs, "kind": "weapon", "errors": [e.to_dict() for e in errs]}, 0 if not errs else 1)
     n, errs, warns = S.check(raw)
     d = n.get("derived", {})
-    res = {"ok": not errs, "kind": "boss", "template": d.get("template"), "scale": d.get("scale"), "hitbox": d.get("hitbox"),
+    res = {"ok": not errs, "kind": "boss", "template": d.get("template"), "custom_shape": d.get("custom"), "scale": d.get("scale"),
+           "model_height": d.get("model_height"), "hitbox": d.get("hitbox"),
            "errors": [e.to_dict() for e in errs], "warnings": [w.to_dict() for w in warns]}
     return _out(res, 0 if not errs else 1)
 
@@ -236,6 +247,25 @@ def cmd_patch(args) -> int:
     return _out({"ok": True, "files": [f.relpath for f in files], "warnings": [w.to_dict() for w in warns]})
 
 
+def cmd_shape(args) -> int:
+    from . import shape
+    ok, bad = _need_valid(args)
+    if bad is not None:
+        return bad
+    raw, n, warns = ok
+    if not n["derived"].get("custom"):
+        return _fail([Err("/shape", "no_shape", "this spec has no `shape` block (it uses the stock EF mesh)")])
+    out = Path(args.out)
+    model = shape.build_model(n, _boss_ctx(n, out, args))
+    files, _lang = shape.generate(n, _boss_ctx(n, out, args))
+    _write_gen(out, files)
+    lo, hi = model.bounds
+    return _out({"ok": True, "files": [f.relpath for f in files], "boxes": len(model.boxes), "atlas": list(model.atlas),
+                 "height": round(model.height, 4), "scale": n["derived"]["scale"],
+                 "bounds": {"min": [round(v, 3) for v in lo], "max": [round(v, 3) for v in hi]},
+                 "proportions": model.proportions, "warnings": [w.to_dict() for w in warns]})
+
+
 def cmd_lore(args) -> int:
     from . import lore
     ok, bad = _need_valid(args)
@@ -284,7 +314,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("list", help="print catalog data as JSON")
-    s.add_argument("what", choices=["tiers", "archetypes", "templates", "materials", "features", "abilities", "weapon-categories", "series", "animations"])
+    s.add_argument("what", choices=["tiers", "archetypes", "templates", "materials", "features", "abilities", "weapon-categories", "series", "animations", "silhouettes", "presets"])
     s.add_argument("--prefix")
     s.set_defaults(fn=cmd_list)
 
@@ -293,6 +323,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--tier", required=True); s.add_argument("--mod-name"); s.add_argument("--height", type=float); s.add_argument("--width", type=float)
     s.add_argument("--archetype"); s.add_argument("--weapon-category"); s.add_argument("--weapon-name"); s.add_argument("--template")
     s.add_argument("--summary"); s.add_argument("--backstory"); s.add_argument("--description")
+    s.add_argument("--silhouette", help="custom body shape preset (default from archetype; 'none' = stock EF mesh)")
     s.add_argument("--out", required=True)
     s.set_defaults(fn=cmd_init)
 
@@ -312,6 +343,9 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("weapon", help="generate weapon files (--out) or add a weapon to a project (--project)")
     s.add_argument("spec"); s.add_argument("--out"); s.add_argument("--project"); s.add_argument("--essence-item")
     s.add_argument("--force", action="store_true"); s.add_argument("--dry-run", action="store_true"); s.set_defaults(fn=cmd_weapon)
+
+    s = sub.add_parser("shape", help="build the custom EF mesh JSON for a spec with a `shape` block")
+    s.add_argument("spec"); s.add_argument("--out", required=True); s.set_defaults(fn=cmd_shape)
 
     s = sub.add_parser("patch", help="generate the Epic Fight mobpatch JSON")
     s.add_argument("spec"); s.add_argument("--out", required=True); s.set_defaults(fn=cmd_patch)

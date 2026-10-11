@@ -42,6 +42,10 @@ Phase windows: phase k covers health in `(thr_{k+1}, thr_k]`. Contiguous phases 
 
 Stun duration reduction = `stun_armor / (stun_armor + 7.5)`; with `stun_armor 15` the boss takes 33% of normal stun time. `impact` (weapon + base) must exceed stun armor thresholds to stagger.
 
+## Custom models on the biped rig
+
+A boss with a `shape` gets `"model": "<mod>:entity/<id>"` (EF loads `assets/<mod>/animmodels/entity/<id>.json`) and keeps `"armature": "epicfight:entity/biped"`, so every biped animation and weapon moveset still applies. The mesh JSON has no armature section; vertices are rigidly weighted to the biped joints (indices from `assets/data/rigs.json`), and all 12 EF humanoid part names (`head hat torso jacket rightArm leftArm rightLeg leftLeg rightSleeve leftSleeve rightPants leftPants`) are present because `HumanoidMesh` looks them up. `qa` re-validates the mesh JSON and checks that the mobpatch `model` matches.
+
 ## Custom armatures
 
 Not generated. A custom boss mesh needs a Blender rig exported with the EF exporter (https://github.com/Epic-Fight/blender-json-exporter) as `assets/<mod>/animmodels/entity/<name>.json` plus an armature and animation set registered through the EF API (`docs/API/Starting.en.md` in the EF docs repo). Point `model`/`armature` at the new ids; the rest of this skill (spec, weapons, loot, Java) still applies.

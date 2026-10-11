@@ -21,7 +21,7 @@ RGB = Tuple[int, int, int]
 class Texel:
     """One painted texture texel with the surface context features and materials need."""
     __slots__ = ("x", "y", "pos", "p", "n", "part", "region", "layer", "lx", "ly", "lz", "face",
-                 "fu", "fv", "eh", "ev", "tb", "vr", "rgb")
+                 "fu", "fv", "eh", "ev", "tb", "m", "vr", "styled", "covered", "rgb")
 
     def __init__(self, x: int, y: int):
         self.x = x
@@ -40,7 +40,10 @@ class Texel:
         self.fv = 0.5  # 0 top .. 1 bottom
         self.eh = 1.0  # region extent along fu, blocks
         self.ev = 1.0  # region extent along fv, blocks
-        self.tb = 0.03125  # texture texel size in blocks
+        self.tb = 0.03125  # texture texel size in blocks (measured per triangle for custom shapes)
+        self.m = 1  # texel-aligned pattern step: texels per 1/32 block (>= 1); keeps weave patterns the same size in blocks
+        self.styled = False  # the box this texel belongs to carries its own material (shape part_style)
+        self.covered = False  # an overlay entry was baked into this base texel: it stands for armor over the body
         self.vr = 1.0  # sign of world x along the viewer's right on front/back faces
         self.rgb = None  # type: Optional[RGB]
 
@@ -110,13 +113,13 @@ def leather(t: Texel, c, a, s: int) -> RGB:
     px, py, pz = t.p
     n = fbm(px * 2, py * 2, pz * 2, 3, s + 4)
     r, g, b = mix(shade(c, 0.6), shade(c, 1.1), n)
-    return _scale(r, g, b, 0.93 + 0.14 * ((t.x + t.y) % 2))
+    return _scale(r, g, b, 0.93 + 0.14 * ((t.x // t.m + t.y // t.m) % 2))
 
 
 def chainmail(t: Texel, c, a, s: int) -> RGB:
     px, py, pz = t.p
     n = fbm(px * 2, py * 2, pz * 2, 2, s + 6)
-    ring = (t.x + (t.y % 2)) % 2
+    ring = (t.x // t.m + (t.y // t.m) % 2) % 2
     r, g, b = mix(shade(c, 0.5), shade(c, 1.2), n)
     return _scale(r, g, b, 0.72 + 0.4 * ring)
 
@@ -125,7 +128,7 @@ def cloth(t: Texel, c, a, s: int) -> RGB:
     px, py, pz = t.p
     n = fbm(px * 1.8, py * 1.8, pz * 1.8, 3, s + 30)
     r, g, b = mix(shade(c, 0.8), shade(c, 1.15), n)
-    f = 0.88 + 0.12 * ((t.x + t.y) % 2)
+    f = 0.88 + 0.12 * ((t.x // t.m + t.y // t.m) % 2)
     if math.sin(px * 2.4 + 2.0 * fbm(px * 0.5, py * 0.5, pz * 0.5, 1, s + 50)) > 0.55:
         f *= 0.82
     return _scale(r, g, b, f)

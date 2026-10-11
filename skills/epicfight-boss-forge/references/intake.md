@@ -8,10 +8,11 @@ Ask only for what is missing, in one batch. Offer 2-4 concrete options per quest
 2. Tier: major (arena fight, summon item), quest (command-triggered, mid-power), mini (roams, spawns naturally), hidden (secret, loot-only sigil).
 3. Size in blocks ("3 tall, 1 wide"). Limits: height 1.0-8.0, width 0.4-4.0 (width is also depth). Without an answer use the tier default.
 4. Backstory or a one-line concept. At least one sentence is required.
-5. Appearance: colors, armor, face, emblem, glow. Without an answer use an archetype.
-6. Fighting style: fast/slow, heavy hits, what weapon.
-7. Main weapon: name, category (sword, axe, dagger, longsword, greatsword, tachi, spear), look, how players get it (boss drop, craft, both).
-8. Target mod: new (`mod_id`, display name, group) or existing project path.
+5. Body shape: "What silhouette: hulking brute, armored knight, gaunt king, winged fiend, hooded caster, beast, insect? Signature pieces (crown, horns, wings, cape, tail, oversized arm or pauldron, shield)? Anything asymmetric?" Without an answer use the archetype's silhouette, but a vague answer is a reason to ask: a boss must not look generic.
+6. Appearance: colors, armor, face, emblem, glow. Without an answer use an archetype.
+7. Fighting style: fast/slow, heavy hits, what weapon.
+8. Main weapon: name, category (sword, axe, dagger, longsword, greatsword, tachi, spear), look (blade shape, guard), how players get it (boss drop, craft, both).
+9. Target mod: new (`mod_id`, display name, group) or existing project path.
 
 ## Size
 
@@ -21,9 +22,38 @@ Ask only for what is missing, in one batch. Offer 2-4 concrete options per quest
 | "2 wide" only | `width: 2.0`, height from the tier default |
 | "huge", "giant" | height 5-6, width 1.6-2.2 |
 | "small", "quick" | height 1.8-2.2 |
-| very wide + no weapon | auto picks `iron_golem` |
+| very wide + no weapon | `body.template: iron_golem` (stock golem mesh) or a `brute`/`colossus` shape |
 
-Wielding a weapon forces the humanoid `biped` mesh. A wide hitbox on the biped mesh warns `wide_hitbox_for_template` (mesh looks narrow inside the hitbox).
+A `shape` boss is always built on the EF biped rig, so it can wield any weapon. Size is the TOTAL height including crown and horns.
+
+## Body shape
+
+Map the description to a silhouette first (`bossforge list silhouettes`), then proportions, attachments and free-form parts (`shape-forge.md` has every option):
+
+| User says | Shape |
+|---|---|
+| "king", "crowned" | silhouette `knight` or `skeletal_king`; attachment `crown` (spiked/tall/band/broken) |
+| "armored", "knight", "paladin" | `knight`; `pauldrons` layered, `gauntlets`, `greaves`, `cape`, `shield` kite |
+| "warlord", "war chief" | `warlord` (asymmetric pauldron, banner) |
+| "hulking", "brute", "giant fists" | `brute` or proportions `head 0.8, shoulders 1.5, arm_thickness 1.7, fist 2.2`; `jaw`, `spine_spikes` |
+| "colossus", "golem-like", "construct" | `colossus` (reactor `core`, round pauldrons) |
+| "demon", "winged", "devil" | `fiend`: `horns` demon, `wings` bat, `tail` spiked, `claws` |
+| "skeleton", "lich", "undead king" | `skeletal_king`: `ribcage`, skull `pauldrons`, tattered `cape` |
+| "mage", "sorcerer", "cultist" | `caster`: `hood`, tattered `cape`, `skirt` robe, `halo`/`orbs` |
+| "ghost", "wraith", "specter" | `wraith`: long arms with talons, pointed `hood`, shards |
+| "beast", "werewolf", "lion" | `beast`: `mane`, `tusks`, `claws`, `tail` |
+| "insect", "mantis", "spider-like" | `insectoid`: `extra_arms`, mandibles |
+| "horns", "antlers" | `horns` (curved straight ram antlers demon bull) |
+| "cape", "cloak" | `cape` (short long tattered) |
+| "wings" | `wings` (bat feathered angel skeletal flame; `spread` 10-80); static, they do not flap |
+| "tail" | `tail` (lizard spiked whip club) |
+| "shield" | `shield` (round kite tower) on the left forearm |
+| "floating orbs / shards / halo" | `orbs`, `halo` |
+| "one huge shoulder / chained lantern / spear through the arm" | free-form `parts` boxes (coordinates in `shape-forge.md`) |
+| "small head, huge hands" | proportions `head`, `fist` |
+| "tall and gaunt" | proportions `torso_height 1.2`, `arm_thickness 0.6`, `leg_thickness 0.6` |
+
+Rules: 2-4 signature pieces, 2-3 proportion overrides, glow in the accent color. Check the side and back panels of the preview, not only the front.
 
 ## Appearance
 
@@ -31,11 +61,11 @@ Pick the closest archetype, then override. Archetypes: `knight undead beast demo
 
 | User says | Spec |
 |---|---|
-| "crown" | `overlay` `{"region":"head","material":"plate_gold","color":"accent","y":[0.86,1.0]}` |
+| "glowing crown" | `crown` attachment with `color: accent`; for a baked gold cap use `overlay` `{"region":"head","material":"plate_gold","color":"accent","y":[0.86,1.0]}` |
 | "glowing eyes" | feature `{"type":"eyes","glow":true,"color":"eyes"}` |
 | "scar over the left eye" | `{"type":"scar","side":"left"}` |
 | "long grey beard" | `{"type":"beard","length":"long","color":"#c8c8d0"}` |
-| "plate armor" | overlay entries with `plate_steel` on torso/arms/legs plus `plates` feature |
+| "plate armor" | `regions` torso/arms `plate_steel`, `plates` feature, `pauldrons`/`gauntlets`/`greaves` attachments |
 | "hooded" | `{"type":"hair","style":"hood","color":"primary"}` |
 | "sun/cross/skull crest" | `{"type":"emblem","shape":"sun","region":"torso","face":"front","color":"accent"}` |
 | "cracked, magma" | `cracks` feature with accent color, `ember` material region |
@@ -45,7 +75,7 @@ Pick the closest archetype, then override. Archetypes: `knight undead beast demo
 
 Palette keys: `primary secondary accent skin hair eyes`. Colors are palette keys or `#rrggbb`.
 
-Capes, horns, wings, extra limbs, floating parts CANNOT exist: the EF mesh is fixed, only the painted skin changes. Honest alternatives: paint the cape colors as a tabard with `emblem`, paint horns on a hood, use the `golem` template for bulk, or tell the user a custom Blender mesh is outside this skill (see `epicfight-patch.md`).
+Extra limbs that animate, flapping wings, cloth physics and non-humanoid skeletons cannot exist (rigid static pieces on the EF biped rig only); say so and offer the closest static alternative.
 
 ## Fighting style, skills
 

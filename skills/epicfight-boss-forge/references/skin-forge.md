@@ -20,6 +20,10 @@ Outputs: `src/main/resources/assets/<mod>/textures/entity/<id>.png` and `bossfor
 
 Texture size note: UV coordinates only give a lower bound (the biped UVs sit on a 16x32 grid); the real size comes from texel density (1 texel = 1/16 block).
 
+## Custom shapes
+
+Bosses with a `shape` block are painted onto their own generated mesh (see `shape-forge.md`): the texture is a square atlas sized from `shape.texture.density` (texels per block, default 32), `appearance.texture.scale` is ignored, there is no separate overlay layer (`overlay` entries are baked into base texels), and attachments/parts use their own materials. The preview has five panels: front, three-quarter, side, back, texture. Eyes, brow, scar, beard and hair go on the head box front; emblem, trim, plates, cracks, wear, runes on the base regions.
+
 ## Appearance schema
 
 `{description, archetype, palette{primary,secondary,accent,skin,hair,eyes}, regions{<key>:{material,color?,accent?}}, overlay:[{region,material,color?,accent?,y:[lo,hi],name?}], overlay_enabled, features:[...], texture:{scale}}`.

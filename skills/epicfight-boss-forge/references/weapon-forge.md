@@ -4,9 +4,27 @@ Every boss weapon is a real Forge item the player can obtain, with an Epic Fight
 
 ## Weapon object
 
-`{id, display_name, category, rarity (common|uncommon|rare|epic; rare), damage (1-40), attack_speed (-4.0..0.0), durability (100-5000), ef{impact, armor_negation, max_strikes, damage_bonus?, speed_bonus?}, appearance{blade, guard, grip, accent, gem, glow, motif plain|fuller|runes|serrated}, effects[{on:"hit", effect, duration:100, amplifier:0, chance:1.0}], obtain{drop, craft, recipe?}, lore[<=4 lines <=90 chars]}`. Spears take `ef: {one_hand:{...}, two_hand:{...}}`.
+`{id, display_name, category, rarity (common|uncommon|rare|epic; rare), damage (1-40), attack_speed (-4.0..0.0), durability (100-5000), ef{impact, armor_negation, max_strikes, damage_bonus?, speed_bonus?}, appearance{blade, guard, grip, accent, gem, glow, motif plain|fuller|runes|serrated, shape, guard_shape, pommel_shape, length 0.8-1.15, width 0.7-1.4}, visual_scale 0.4-1.5, effects[{on:"hit", effect, duration:100, amplifier:0, chance:1.0}], obtain{drop, craft, recipe?}, lore[<=4 lines <=90 chars]}`. Spears take `ef: {one_hand:{...}, two_hand:{...}}`.
 
-Appearance defaults: blade `#cfd6e4`, guard = boss accent, grip `#5a3a22`, accent = boss accent, gem = boss eyes, glow false, motif fuller.
+Appearance defaults: blade `#cfd6e4`, guard = boss accent, grip `#5a3a22`, accent = boss accent, gem = boss eyes, glow false, motif fuller, the category's default shape, guard `bar`, pommel `disc`, length/width 1.0.
+
+## Weapon shapes (unique silhouettes)
+
+| Category | `shape` options (default first) |
+|---|---|
+| sword | straight, broad, leaf, wavy, serrated, hooked |
+| longsword | straight, broad, leaf, wavy, serrated |
+| greatsword | broad, cleaver, wavy, serrated |
+| tachi | curved, straight, hooked |
+| dagger | straight, leaf, wavy, serrated, hooked |
+| axe (head) | broad, crescent, double, cleaver |
+| spear (head) | leaf, trident, hooked, broad |
+
+`guard_shape`: bar, winged, curved, ring, ornate, none (axe/spear: only `none` changes anything). `pommel_shape`: disc, gem, spike, ring, none. `length`/`width` stretch the blade. Match the weapon to the boss: a wavy flamberge for a fiend, a winged guard with a gem pommel for a holy king, a cleaver greatsword for a brute. Read `<boss>_weapons.png` before approving.
+
+## Held size (`visual_scale`)
+
+EF's weapon parent models display held items at 1.5x, and EF multiplies by the entity `scale` again, so weapons on big bosses look enormous. `visual_scale` (0.4-1.5) scales the weapon in the third/first person HAND perspectives only (gui, ground and frame are unchanged; the grip stays at the hand). If omitted, the boss's `main_weapon` is shrunk automatically when the mesh scale is above 1.2 (`clamp(1/sqrt(scale), 0.7, 1.0)`). The same item model is used when a player holds it.
 
 ## Categories (`bossforge list weapon-categories`)
 

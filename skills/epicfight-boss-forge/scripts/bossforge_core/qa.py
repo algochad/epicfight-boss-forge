@@ -395,23 +395,42 @@ def run(project, spec_raw: Optional[dict] = None, cache_dir=None) -> List[_spec.
             errs.extend(Err(pre + e.path, e.code, e.message) for e in validate_mobpatch(patch, catalog))
             if d["scale"] is not None and patch.get("attributes", {}).get("scale") != d["scale"]:
                 errs.append(Err(pre, "qa_scale_mismatch", "mobpatch scale %s != size.height/model_height %s" % (patch.get("attributes", {}).get("scale"), d["scale"])))
-        # entity texture
+        # entity texture (+ custom mesh)
         sc = n["appearance"]["texture"]["scale"]
         tex = res / "assets" / mod / "textures" / "entity" / (bid + ".png")
+        model = None
+        if d.get("custom"):
+            from . import efmodel, shape
+            model_file = res / "assets" / mod / "animmodels" / "entity" / (bid + ".json")
+            if not model_file.is_file():
+                errs.append(Err(pre, "qa_missing_file", "custom EF mesh %s missing" % model_file.relative_to(root)))
+            else:
+                try:
+                    problems = efmodel.check_mesh_json(json.loads(model_file.read_text(encoding="utf-8")))
+                except ValueError as e:
+                    problems = ["not valid JSON: %s" % e]
+                errs.extend(Err(pre, "qa_bad_mesh", p) for p in problems)
+            if mp.is_file() and json.loads(mp.read_text(encoding="utf-8")).get("model") != d["model_id"]:
+                errs.append(Err(pre, "qa_model_mismatch", "mobpatch model must be %s" % d["model_id"]))
+            model = shape.build_model(n)
         if not tex.is_file():
             errs.append(Err(pre, "qa_missing_file", "entity texture missing"))
         else:
-            want = (tpl["authored_uv"][0] * sc, tpl["authored_uv"][1] * sc)
+            want = tuple(model.atlas) if model else (tpl["authored_uv"][0] * sc, tpl["authored_uv"][1] * sc)
             if png_size(tex) != want:
                 errs.append(Err(pre, "qa_texture_size", "entity texture is %s, expected %s" % (png_size(tex), want)))
             else:
                 try:
-                    from . import efassets, efmesh
-                    mesh_path = efassets.mesh_file(tpl["mesh_name"], cache_dir or efassets.default_cache_dir(),
-                                                   _spec.data("versions")["epicfight"]["assets_ref"], None, True)
                     from . import skin
                     from .pngio import decode_png
-                    cov = skin.coverage_of(decode_png(tex), efmesh.load_mesh(mesh_path, tpl), tpl)
+                    if model:
+                        mesh, mtpl = model.mesh, model.tpl
+                    else:
+                        from . import efassets, efmesh
+                        mesh_path = efassets.mesh_file(tpl["mesh_name"], cache_dir or efassets.default_cache_dir(),
+                                                       _spec.data("versions")["epicfight"]["assets_ref"], None, True)
+                        mesh, mtpl = efmesh.load_mesh(mesh_path, tpl), tpl
+                    cov = skin.coverage_of(decode_png(tex), mesh, mtpl)
                     if cov is not None and cov < 0.90:
                         errs.append(Err(pre, "qa_texture_coverage", "entity texture covers %.0f%% of the UV area (needs >= 90%%)" % (cov * 100)))
                 except _spec.BossForgeError:

@@ -1,0 +1,126 @@
+{
+  "plain": {
+    "description": "The stock humanoid proportions with no extra parts; start here and add `proportions` / `attachments` yourself.",
+    "archetype": "knight",
+    "proportions": {},
+    "attachments": []
+  },
+  "knight": {
+    "description": "Armored champion: slightly broad, plumed helm, layered pauldrons, plate gauntlets and greaves, tassets and a long cloak.",
+    "archetype": "knight",
+    "proportions": {"head": 0.95, "shoulders": 1.2, "torso_width": 1.1, "arm_thickness": 1.15, "leg_thickness": 1.1, "fist": 1.2, "bulk": 1.05},
+    "attachments": [
+      {"id": "helm", "preset": "helm", "style": "plumed"},
+      {"id": "pauldrons", "preset": "pauldrons", "style": "layered"},
+      {"id": "gauntlets", "preset": "gauntlets", "style": "plate"},
+      {"id": "greaves", "preset": "greaves", "style": "plate"},
+      {"id": "belt", "preset": "belt", "style": "plated"},
+      {"id": "cape", "preset": "cape", "style": "long"}
+    ]
+  },
+  "warlord": {
+    "description": "Hulking war chief: small horned helm on huge shoulders, one oversized spiked pauldron, spiked gauntlets, kilt and a banner on the back.",
+    "archetype": "knight",
+    "proportions": {"head": 0.9, "shoulders": 1.45, "torso_width": 1.25, "torso_depth": 1.2, "torso_height": 1.1, "arm_thickness": 1.4, "fist": 1.5, "leg_thickness": 1.25, "bulk": 1.1},
+    "attachments": [
+      {"id": "helm", "preset": "helm", "style": "horned"},
+      {"id": "pauldrons", "preset": "pauldrons", "style": "asymmetric", "side": "right"},
+      {"id": "gauntlets", "preset": "gauntlets", "style": "spiked"},
+      {"id": "greaves", "preset": "greaves", "style": "spiked"},
+      {"id": "skirt", "preset": "skirt", "style": "kilt"},
+      {"id": "banner", "preset": "banner", "style": "standard"}
+    ]
+  },
+  "brute": {
+    "description": "Tiny head, enormous shoulders, arms and fists: underbite jaw with tusks, spine spikes and a plain belt.",
+    "archetype": "beast",
+    "proportions": {"head": 0.8, "shoulders": 1.5, "torso_width": 1.4, "torso_depth": 1.3, "torso_height": 1.1, "arm_thickness": 1.7, "arm_length": 1.15, "fist": 2.2, "leg_thickness": 1.3},
+    "attachments": [
+      {"id": "jaw", "preset": "jaw", "style": "underbite"},
+      {"id": "spikes", "preset": "spine_spikes", "style": "spikes", "count": 5},
+      {"id": "belt", "preset": "belt", "style": "plain"}
+    ]
+  },
+  "colossus": {
+    "description": "Towering construct: stout legs, tall barrel torso, giant round pauldrons, plated fists and shins, glowing reactor core.",
+    "archetype": "golem",
+    "proportions": {"head": 0.95, "shoulders": 1.35, "torso_width": 1.5, "torso_height": 1.3, "arm_thickness": 1.5, "fist": 1.8, "leg_thickness": 1.8},
+    "attachments": [
+      {"id": "pauldrons", "preset": "pauldrons", "style": "round", "scale": 1.35},
+      {"id": "core", "preset": "core", "style": "reactor", "scale": 1.3},
+      {"id": "gauntlets", "preset": "gauntlets", "style": "plate", "scale": 1.15},
+      {"id": "greaves", "preset": "greaves", "style": "plate", "scale": 1.1},
+      {"id": "belt", "preset": "belt", "style": "plain"}
+    ]
+  },
+  "caster": {
+    "description": "Slim robed sorcerer: soft hood, long tattered cloak, robe skirt, a halo above the head and orbiting orbs.",
+    "archetype": "cultist",
+    "proportions": {"head": 1.0, "shoulders": 0.85, "torso_width": 0.8, "torso_depth": 0.9, "arm_thickness": 0.7, "fist": 0.8, "leg_thickness": 0.7, "bulk": 0.9},
+    "attachments": [
+      {"id": "hood", "preset": "hood", "style": "soft"},
+      {"id": "cape", "preset": "cape", "style": "tattered"},
+      {"id": "skirt", "preset": "skirt", "style": "robe"},
+      {"id": "halo", "preset": "halo", "style": "ring"},
+      {"id": "orbs", "preset": "orbs", "style": "orbs", "count": 3}
+    ]
+  },
+  "beast": {
+    "description": "Hunched predator: big head with a lion mane and tusks, long arms with blade claws, thick tail.",
+    "archetype": "beast",
+    "proportions": {"head": 1.2, "shoulders": 1.35, "torso_width": 1.2, "torso_depth": 1.15, "arm_thickness": 1.4, "arm_length": 1.25, "fist": 1.5, "leg_thickness": 1.1},
+    "attachments": [
+      {"id": "mane", "preset": "mane", "style": "lion"},
+      {"id": "tusks", "preset": "tusks", "style": "boar"},
+      {"id": "claws", "preset": "claws", "style": "blades"},
+      {"id": "tail", "preset": "tail", "style": "lizard"}
+    ]
+  },
+  "fiend": {
+    "description": "Winged demon: swept-back horns, bat wings, spiked tail, claws and fangs.",
+    "archetype": "demon",
+    "proportions": {"head": 1.1, "shoulders": 1.25, "torso_width": 1.1, "arm_thickness": 1.2, "fist": 1.4},
+    "attachments": [
+      {"id": "horns", "preset": "horns", "style": "demon"},
+      {"id": "wings", "preset": "wings", "style": "bat", "spread": 50, "scale": 0.85},
+      {"id": "tail", "preset": "tail", "style": "spiked"},
+      {"id": "claws", "preset": "claws", "style": "claws"},
+      {"id": "fangs", "preset": "fangs", "style": "fangs"}
+    ]
+  },
+  "skeletal_king": {
+    "description": "Gaunt undead monarch: thin frame, exposed ribcage, spiked crown, skull pauldrons and a tattered cloak.",
+    "archetype": "undead",
+    "proportions": {"head": 1.1, "shoulders": 0.95, "torso_width": 0.75, "torso_depth": 0.8, "torso_height": 1.1, "arm_thickness": 0.6, "fist": 0.9, "leg_thickness": 0.6, "bulk": 0.9},
+    "attachments": [
+      {"id": "ribs", "preset": "ribcage", "count": 5},
+      {"id": "crown", "preset": "crown", "style": "spiked"},
+      {"id": "pauldrons", "preset": "pauldrons", "style": "skull", "scale": 0.9},
+      {"id": "cape", "preset": "cape", "style": "tattered"}
+    ]
+  },
+  "wraith": {
+    "description": "Hooded specter: very long thin arms with talons, pointed hood, tattered cloak and a floor-length tabard, floating shards.",
+    "archetype": "wraith",
+    "proportions": {"head": 1.0, "shoulders": 0.8, "torso_width": 0.75, "torso_depth": 0.8, "arm_thickness": 0.55, "arm_length": 1.35, "fist": 0.8, "leg_thickness": 0.5, "bulk": 0.9},
+    "attachments": [
+      {"id": "hood", "preset": "hood", "style": "pointed"},
+      {"id": "cape", "preset": "cape", "style": "tattered"},
+      {"id": "skirt", "preset": "skirt", "style": "tabard", "scale": 1.4},
+      {"id": "claws", "preset": "claws", "style": "talons"},
+      {"id": "shards", "preset": "orbs", "style": "shards", "count": 4}
+    ]
+  },
+  "insectoid": {
+    "description": "Mantis-like horror: thin limbs, two extra arm pairs, mandibles, antennae, back plates and blade claws.",
+    "archetype": "beast",
+    "proportions": {"head": 0.9, "shoulders": 0.9, "torso_width": 0.75, "torso_depth": 0.9, "torso_height": 1.1, "arm_thickness": 0.6, "arm_length": 1.25, "fist": 0.9, "leg_thickness": 0.6},
+    "attachments": [
+      {"id": "extra", "preset": "extra_arms", "pose": "forward", "count": 2},
+      {"id": "mandibles", "preset": "fangs", "style": "mandibles"},
+      {"id": "antennae", "preset": "horns", "style": "straight", "length": 1.4, "scale": 0.9},
+      {"id": "plates", "preset": "spine_spikes", "style": "plates", "count": 5},
+      {"id": "claws", "preset": "claws", "style": "blades"}
+    ]
+  }
+}

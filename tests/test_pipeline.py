@@ -50,7 +50,7 @@ def run_cli(*argv):
 def golem_spec(tmp: Path) -> Path:
     p = tmp / "golem.json"
     code, out = run_cli("init", "--id", "stone_warden", "--name", "Stone Warden", "--mod-id", "roundtable", "--tier", "mini",
-                        "--height", "2.6", "--width", "1.6", "--archetype", "golem", "--out", str(p))
+                        "--height", "2.6", "--width", "1.6", "--archetype", "golem", "--template", "iron_golem", "--out", str(p))
     assert code == 0, out
     return p
 
@@ -183,3 +183,38 @@ class AddWeaponTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(HAVE_MESHES, "EF meshes not cached (run fetch-ef-assets)")
+class CustomShapePipelineTests(unittest.TestCase):
+    def test_shipped_example_generates_a_custom_mesh_wired_into_the_mobpatch(self):
+        from _path import SHIPPED_EXAMPLE
+        from bossforge_core import efmodel
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            proj = make_project(tmp / "proj")
+            res = scaffold.add_boss(SHIPPED_EXAMPLE, proj, CACHE, offline=True)
+            self.assertTrue(res["ok"], res)
+            res_dir = proj / "src/main/resources"
+            mesh = json.loads((res_dir / "assets/roundtable/animmodels/entity/king_arthur.json").read_text())
+            self.assertEqual(efmodel.check_mesh_json(mesh), [])
+            patch = json.loads((res_dir / "data/roundtable/epicfight_mobpatch/king_arthur.json").read_text())
+            self.assertEqual(patch["model"], "roundtable:entity/king_arthur")
+            self.assertEqual(patch["armature"], "epicfight:entity/biped")
+            n = spec.normalize(spec.load(SHIPPED_EXAMPLE))
+            self.assertEqual(patch["attributes"]["scale"], n["derived"]["scale"])
+            self.assertTrue(res["qa"]["ok"], res["qa"])
+            again = scaffold.add_boss(SHIPPED_EXAMPLE, proj, CACHE, offline=True)
+            self.assertEqual(again["files"]["written"] + again["files"]["updated"] + again["files"]["conflicts"], [])
+        finally:
+            shutil.rmtree(str(tmp), ignore_errors=True)
+
+    def test_custom_shape_needs_no_epic_fight_mesh_download(self):
+        from _path import SHIPPED_EXAMPLE
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            proj = make_project(tmp / "proj")
+            res = scaffold.add_boss(SHIPPED_EXAMPLE, proj, tmp / "empty-cache", offline=True)
+            self.assertTrue(res["ok"], res)
+        finally:
+            shutil.rmtree(str(tmp), ignore_errors=True)

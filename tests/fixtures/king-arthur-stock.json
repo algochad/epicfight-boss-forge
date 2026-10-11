@@ -1,0 +1,64 @@
+{
+  "schema": "epicfight-boss-forge/1",
+  "id": "king_arthur", "mod_id": "roundtable", "mod_name": "Round Table Bosses",
+  "display_name": "King Arthur", "title": "The Once and Future King", "tier": "major",
+  "lore": {
+    "summary": "A spectral king who refuses to fall until the realm he swore to protect is whole.",
+    "backstory": "At Camlann Arthur's last oath outlived his body. Bound to the shattered seats of the Round Table, he walks the ruined hall with Excalibur raised, testing every challenger against the vow he failed to keep.",
+    "description": "A towering crowned knight in steel and crimson, wielding the sword Excalibur.",
+    "personality": "Stoic, honorable, grieving.",
+    "death_message": "The king's oath is finally laid to rest."
+  },
+  "size": {"height": 3.0, "width": 1.0},
+  "body": {"template": "auto"},
+  "appearance": {
+    "description": "Crowned grey-bearded king in polished steel plate under a crimson tabard with a gold sun crest, pale glowing blue eyes, old scar over the left eye.",
+    "archetype": "knight",
+    "palette": {"primary": "#9aa5b8", "secondary": "#8c1a20", "accent": "#d4aa32", "skin": "#c89a7c", "hair": "#6a4a30", "eyes": "#46a0ff"},
+    "regions": {"legs": {"material": "cloth", "color": "secondary"}},
+    "overlay": [
+      {"region": "head", "material": "plate_gold", "color": "accent", "y": [0.86, 1.0], "name": "crown"},
+      {"region": "torso", "material": "plate_steel", "color": "primary", "y": [0.30, 1.0]},
+      {"region": "arm_l", "material": "plate_steel", "color": "primary", "y": [0.55, 1.0]},
+      {"region": "arm_r", "material": "plate_steel", "color": "primary", "y": [0.55, 1.0]},
+      {"region": "leg_l", "material": "plate_steel", "color": "primary", "y": [0.0, 0.45]},
+      {"region": "leg_r", "material": "plate_steel", "color": "primary", "y": [0.0, 0.45]}
+    ],
+    "features": [
+      {"type": "eyes", "style": "human", "color": "eyes", "glow": true},
+      {"type": "brow", "color": "hair"},
+      {"type": "scar", "side": "left"},
+      {"type": "hair", "style": "long", "color": "hair"},
+      {"type": "beard", "length": "long", "color": "#c8c8d0"},
+      {"type": "emblem", "shape": "sun", "region": "torso", "face": "front", "color": "accent", "size": 0.7},
+      {"type": "trim", "region": "torso", "where": "hem", "color": "accent", "width": 0.1},
+      {"type": "plates", "regions": ["arm_l", "arm_r", "leg_l", "leg_r"], "spacing": 0.35},
+      {"type": "wear", "amount": 0.3}
+    ],
+    "texture": {"scale": 2}
+  },
+  "weapons": [{
+    "id": "excalibur", "display_name": "Excalibur", "category": "longsword", "rarity": "epic",
+    "damage": 9, "attack_speed": -2.4, "durability": 2031,
+    "appearance": {"blade": "#cfe3ff", "guard": "#d4aa32", "grip": "#5a3a22", "accent": "#46a0ff", "gem": "#46a0ff", "glow": true, "motif": "fuller"},
+    "effects": [{"on": "hit", "effect": "minecraft:slowness", "duration": 60, "amplifier": 0, "chance": 0.3}],
+    "obtain": {"drop": 0.25, "craft": true},
+    "lore": ["Forged from the lake's light.", "Its edge remembers every oath."]
+  }],
+  "main_weapon": "excalibur",
+  "phases": [
+    {"name": "Sworn King", "health_below": 1.0},
+    {"name": "Wounded King", "health_below": 0.66, "announce": "The king staggers, but his oath holds."},
+    {"name": "Last Oath", "health_below": 0.33, "announce": "Arthur raises Excalibur for the final time."}
+  ],
+  "abilities": [
+    {"type": "summon", "entity": "minecraft:vindicator", "count": 2, "phase": 2},
+    {"type": "regen", "per_second": 2.0, "phases": [3]},
+    {"type": "enrage", "phase": 3, "speed_pct": 15, "damage_pct": 15}
+  ],
+  "encounter": {
+    "trigger": "summon_item",
+    "summon_item": {"required_block": "minecraft:enchanting_table", "dimension": null, "consume": true},
+    "boss_bar": {"show": true, "color": "purple", "overlay": "notched_10"}
+  }
+}

@@ -576,7 +576,11 @@ def add_boss(spec_path, project_dir, cache_dir=None, offline: bool = False, forc
     files: List[GenFile] = _core_files(ctx, root, adopted)
     lang: dict = {}
     report = None
-    for gen in (skin.generate_with_report, weapon.generate, patch.generate, javagen.generate, lore.generate):
+    gens = [skin.generate_with_report, weapon.generate, patch.generate, javagen.generate, lore.generate]
+    if n["derived"].get("custom"):
+        from . import shape
+        gens.insert(1, shape.generate)
+    for gen in gens:
         out = gen(n, ctx)
         files.extend(out[0])
         lang.update(out[1])
