@@ -1,0 +1,7 @@
+interface:
+  display_name: "Epic Fight Boss Forge"
+  short_description: "Create Epic Fight-native bosses, textures and weapons for Forge 1.20.1 mods"
+  default_prompt: "Use $epicfight-boss-forge to design and generate a boss for my Forge 1.20.1 Epic Fight mod."
+
+policy:
+  allow_implicit_invocation: true

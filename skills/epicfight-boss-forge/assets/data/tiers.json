@@ -1,0 +1,190 @@
+{
+  "major": {
+    "stats": {
+      "health": 400,
+      "armor": 12,
+      "armor_toughness": 6,
+      "attack_damage": 10,
+      "movement_speed": 0.26,
+      "knockback_resistance": 0.8,
+      "follow_range": 48,
+      "xp_reward": 500,
+      "impact": 3.0,
+      "armor_negation": 15.0,
+      "max_strikes": 3,
+      "stun_armor": 15.0,
+      "chasing_speed": 1.15
+    },
+    "phase_thresholds": [
+      1.0,
+      0.66,
+      0.33
+    ],
+    "phase_names": [
+      "Sworn",
+      "Wounded",
+      "Last Stand"
+    ],
+    "stun_animations": [
+      "long",
+      "knockdown"
+    ],
+    "boss_bar": {
+      "show": true,
+      "color": "purple",
+      "overlay": "notched_10"
+    },
+    "trigger": "summon_item",
+    "essence": {
+      "min": 3,
+      "max": 4
+    },
+    "weapon_drop": 0.25,
+    "weapon_craftable": true,
+    "texture_scale": 2,
+    "default_size": {
+      "height": 3.0,
+      "width": 1.0
+    }
+  },
+  "quest": {
+    "stats": {
+      "health": 200,
+      "armor": 8,
+      "armor_toughness": 3,
+      "attack_damage": 7,
+      "movement_speed": 0.25,
+      "knockback_resistance": 0.5,
+      "follow_range": 40,
+      "xp_reward": 200,
+      "impact": 2.0,
+      "armor_negation": 8.0,
+      "max_strikes": 2,
+      "stun_armor": 7.5,
+      "chasing_speed": 1.1
+    },
+    "phase_thresholds": [
+      1.0,
+      0.5
+    ],
+    "phase_names": [
+      "Guarded",
+      "Desperate"
+    ],
+    "stun_animations": [
+      "short",
+      "long",
+      "knockdown"
+    ],
+    "boss_bar": {
+      "show": true,
+      "color": "yellow",
+      "overlay": "progress"
+    },
+    "trigger": "command",
+    "essence": {
+      "min": 2,
+      "max": 3
+    },
+    "weapon_drop": 1.0,
+    "weapon_craftable": false,
+    "texture_scale": 2,
+    "default_size": {
+      "height": 2.4,
+      "width": 0.9
+    }
+  },
+  "mini": {
+    "stats": {
+      "health": 80,
+      "armor": 4,
+      "armor_toughness": 0,
+      "attack_damage": 4,
+      "movement_speed": 0.25,
+      "knockback_resistance": 0.2,
+      "follow_range": 28,
+      "xp_reward": 50,
+      "impact": 1.0,
+      "armor_negation": 0.0,
+      "max_strikes": 1,
+      "stun_armor": 3.0,
+      "chasing_speed": 1.0
+    },
+    "phase_thresholds": [
+      1.0
+    ],
+    "phase_names": [
+      "Hostile"
+    ],
+    "stun_animations": [
+      "short",
+      "long",
+      "knockdown",
+      "fall"
+    ],
+    "boss_bar": {
+      "show": false,
+      "color": "white",
+      "overlay": "progress"
+    },
+    "trigger": "natural_spawn",
+    "essence": {
+      "min": 1,
+      "max": 1
+    },
+    "weapon_drop": 0.05,
+    "weapon_craftable": true,
+    "texture_scale": 2,
+    "default_size": {
+      "height": 2.0,
+      "width": 0.7
+    }
+  },
+  "hidden": {
+    "stats": {
+      "health": 600,
+      "armor": 14,
+      "armor_toughness": 8,
+      "attack_damage": 14,
+      "movement_speed": 0.28,
+      "knockback_resistance": 1.0,
+      "follow_range": 56,
+      "xp_reward": 800,
+      "impact": 3.5,
+      "armor_negation": 20.0,
+      "max_strikes": 3,
+      "stun_armor": 22.5,
+      "chasing_speed": 1.2
+    },
+    "phase_thresholds": [
+      1.0,
+      0.66,
+      0.33
+    ],
+    "phase_names": [
+      "Veiled",
+      "Revealed",
+      "Unbound"
+    ],
+    "stun_animations": [
+      "knockdown"
+    ],
+    "boss_bar": {
+      "show": true,
+      "color": "white",
+      "overlay": "notched_20"
+    },
+    "trigger": "summon_item",
+    "essence": {
+      "min": 4,
+      "max": 5
+    },
+    "weapon_drop": 1.0,
+    "weapon_craftable": false,
+    "texture_scale": 2,
+    "default_size": {
+      "height": 3.2,
+      "width": 1.1
+    }
+  }
+}

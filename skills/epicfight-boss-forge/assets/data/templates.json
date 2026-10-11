@@ -1,0 +1,101 @@
+{
+  "biped": {
+    "label": "Humanoid (EF biped)",
+    "humanoid": true,
+    "mesh_name": "biped",
+    "model_id": "epicfight:entity/biped",
+    "armature_id": "epicfight:entity/biped",
+    "renderer": "player",
+    "part_regions": {
+      "head": "head",
+      "hat": "head",
+      "torso": "torso",
+      "jacket": "torso",
+      "rightArm": "arm_r",
+      "rightSleeve": "arm_r",
+      "leftArm": "arm_l",
+      "leftSleeve": "arm_l",
+      "rightLeg": "leg_r",
+      "rightPants": "leg_r",
+      "leftLeg": "leg_l",
+      "leftPants": "leg_l"
+    },
+    "overlay_parts": [
+      "hat",
+      "jacket",
+      "rightSleeve",
+      "leftSleeve",
+      "rightPants",
+      "leftPants"
+    ],
+    "authored_uv": [
+      64,
+      64
+    ],
+    "ref_hitbox": {
+      "width": 0.6,
+      "height": 1.8
+    },
+    "model_height": 2.0,
+    "unit_scale": 1.0,
+    "axis_mode": "x,z,-y",
+    "front_sign": -1,
+    "index_order": "pos,uv,nrm",
+    "uv_origin": "top",
+    "weapon_capable": true,
+    "living_motions": {
+      "idle": "epicfight:biped/living/idle",
+      "walk": "epicfight:biped/living/walk",
+      "chase": "epicfight:biped/living/walk",
+      "mount": "epicfight:biped/living/mount",
+      "fall": "epicfight:biped/living/fall",
+      "death": "epicfight:biped/living/death"
+    },
+    "stun_animations": {
+      "short": "epicfight:biped/combat/hit_short",
+      "long": "epicfight:biped/combat/hit_long",
+      "knockdown": "epicfight:biped/combat/knockdown",
+      "fall": "epicfight:biped/living/landing"
+    }
+  },
+  "iron_golem": {
+    "label": "Brute (EF iron golem)",
+    "humanoid": false,
+    "mesh_name": "iron_golem",
+    "model_id": "epicfight:entity/iron_golem",
+    "armature_id": "epicfight:entity/iron_golem",
+    "renderer": "minecraft:iron_golem",
+    "part_regions": {
+      "head": "head",
+      "chest": "torso",
+      "core": "torso",
+      "rightArm": "arm_r",
+      "leftArm": "arm_l",
+      "rightLeg": "leg_r",
+      "leftLeg": "leg_l"
+    },
+    "overlay_parts": [],
+    "authored_uv": [
+      128,
+      128
+    ],
+    "ref_hitbox": {
+      "width": 1.4,
+      "height": 2.7
+    },
+    "model_height": 2.7748,
+    "unit_scale": 1.0,
+    "axis_mode": "x,z,-y",
+    "front_sign": -1,
+    "index_order": "pos,uv,nrm",
+    "uv_origin": "top",
+    "weapon_capable": false,
+    "living_motions": {
+      "idle": "epicfight:iron_golem/idle",
+      "walk": "epicfight:iron_golem/walk",
+      "chase": "epicfight:iron_golem/walk",
+      "death": "epicfight:iron_golem/death"
+    },
+    "stun_animations": {}
+  }
+}

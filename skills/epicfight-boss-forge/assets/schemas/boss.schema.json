@@ -1,0 +1,736 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "epicfight-boss-forge/1",
+  "title": "Epic Fight Boss Forge boss spec",
+  "description": "Documentation-grade schema. `bossforge validate` is authoritative.",
+  "type": "object",
+  "required": [
+    "schema",
+    "id",
+    "mod_id",
+    "display_name",
+    "tier",
+    "lore"
+  ],
+  "properties": {
+    "schema": {
+      "const": "epicfight-boss-forge/1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,31}$"
+    },
+    "mod_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{1,63}$"
+    },
+    "mod_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 60
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 48
+    },
+    "title": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "tier": {
+      "enum": [
+        "major",
+        "quest",
+        "mini",
+        "hidden"
+      ]
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "lore": {
+      "type": "object",
+      "required": [
+        "summary",
+        "backstory",
+        "description"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "maxLength": 1200
+        },
+        "backstory": {
+          "type": "string",
+          "maxLength": 1200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1200
+        },
+        "personality": {
+          "type": "string",
+          "maxLength": 1200
+        },
+        "death_message": {
+          "type": "string",
+          "maxLength": 1200
+        }
+      }
+    },
+    "size": {
+      "type": "object",
+      "properties": {
+        "height": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 8.0
+        },
+        "width": {
+          "type": "number",
+          "minimum": 0.4,
+          "maximum": 4.0
+        },
+        "depth": {
+          "type": "number",
+          "description": "omit or equal width"
+        }
+      }
+    },
+    "body": {
+      "type": "object",
+      "properties": {
+        "template": {
+          "enum": [
+            "auto",
+            "biped",
+            "iron_golem"
+          ]
+        }
+      }
+    },
+    "faction": {
+      "enum": [
+        "neutral",
+        "undead",
+        "blaze",
+        "enderman",
+        "illager",
+        "piglins",
+        "wither",
+        "villager",
+        "zombified_piglin"
+      ]
+    },
+    "stats": {
+      "type": "object",
+      "properties": {
+        "health": {
+          "type": "number",
+          "minimum": 20,
+          "maximum": 4096
+        },
+        "armor": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 30
+        },
+        "armor_toughness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "attack_damage": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "movement_speed": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 0.6
+        },
+        "knockback_resistance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "follow_range": {
+          "type": "number",
+          "minimum": 8,
+          "maximum": 128
+        },
+        "xp_reward": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 20000
+        },
+        "impact": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1024
+        },
+        "armor_negation": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "max_strikes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024
+        },
+        "stun_armor": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1024
+        },
+        "chasing_speed": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 2.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "appearance": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "archetype": {
+          "enum": [
+            "knight",
+            "undead",
+            "beast",
+            "demon",
+            "elemental",
+            "golem",
+            "wraith",
+            "cultist"
+          ]
+        },
+        "palette": {
+          "type": "object",
+          "properties": {
+            "primary": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "secondary": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "accent": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "skin": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "hair": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "eyes": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            }
+          }
+        },
+        "regions": {
+          "type": "object",
+          "description": "keys: head torso arm_l arm_r leg_l leg_r hands feet arms legs"
+        },
+        "overlay": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "region",
+              "material",
+              "y"
+            ],
+            "properties": {
+              "region": {
+                "type": "string"
+              },
+              "material": {
+                "type": "string"
+              },
+              "color": {
+                "type": "string",
+                "description": "palette key or #rrggbb"
+              },
+              "accent": {
+                "type": "string",
+                "description": "palette key or #rrggbb"
+              },
+              "y": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "overlay_enabled": {
+          "type": "boolean"
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "eyes",
+                  "brow",
+                  "scar",
+                  "hair",
+                  "beard",
+                  "emblem",
+                  "trim",
+                  "plates",
+                  "cracks",
+                  "wear",
+                  "runes",
+                  "stripes"
+                ]
+              }
+            }
+          }
+        },
+        "texture": {
+          "type": "object",
+          "properties": {
+            "scale": {
+              "enum": [
+                1,
+                2,
+                4
+              ]
+            }
+          }
+        }
+      }
+    },
+    "weapons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "display_name",
+          "category"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{2,31}$"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48
+          },
+          "category": {
+            "enum": [
+              "sword",
+              "axe",
+              "dagger",
+              "longsword",
+              "greatsword",
+              "tachi",
+              "spear"
+            ]
+          },
+          "rarity": {
+            "enum": [
+              "common",
+              "uncommon",
+              "rare",
+              "epic"
+            ]
+          },
+          "damage": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 40
+          },
+          "attack_speed": {
+            "type": "number",
+            "minimum": -4.0,
+            "maximum": 0.0
+          },
+          "durability": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 5000
+          },
+          "ef": {
+            "type": "object"
+          },
+          "appearance": {
+            "type": "object",
+            "properties": {
+              "blade": {
+                "type": "string",
+                "description": "palette key or #rrggbb"
+              },
+              "guard": {
+                "type": "string",
+                "description": "palette key or #rrggbb"
+              },
+              "grip": {
+                "type": "string",
+                "description": "palette key or #rrggbb"
+              },
+              "accent": {
+                "type": "string",
+                "description": "palette key or #rrggbb"
+              },
+              "gem": {
+                "type": "string",
+                "description": "palette key or #rrggbb"
+              },
+              "glow": {
+                "type": "boolean"
+              },
+              "motif": {
+                "enum": [
+                  "plain",
+                  "fuller",
+                  "runes",
+                  "serrated"
+                ]
+              }
+            }
+          },
+          "effects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "effect"
+              ],
+              "properties": {
+                "on": {
+                  "const": "hit"
+                },
+                "effect": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9_.-]+:[a-z0-9_./-]+$"
+                },
+                "duration": {
+                  "type": "integer"
+                },
+                "amplifier": {
+                  "type": "integer"
+                },
+                "chance": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              }
+            }
+          },
+          "obtain": {
+            "type": "object",
+            "properties": {
+              "drop": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "craft": {
+                "type": "boolean"
+              },
+              "recipe": {
+                "type": "object",
+                "required": [
+                  "pattern",
+                  "key"
+                ],
+                "properties": {
+                  "pattern": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 3,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 3
+                    }
+                  },
+                  "key": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9_.-]+:[a-z0-9_./-]+$"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "lore": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "type": "string",
+              "maxLength": 90
+            }
+          }
+        }
+      }
+    },
+    "main_weapon": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "moves": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "series"
+        ],
+        "properties": {
+          "series": {
+            "type": "string"
+          },
+          "weight": {
+            "type": "number"
+          },
+          "cooldown": {
+            "type": "integer"
+          },
+          "phases": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "chance": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "range_scale": {
+            "type": "number"
+          },
+          "interruptible": {
+            "type": "boolean"
+          },
+          "loop": {
+            "type": "boolean"
+          },
+          "animations": {
+            "type": "array"
+          }
+        }
+      }
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "health_below"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "health_below": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1
+          },
+          "announce": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "abilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "enum": [
+              "on_hit_effect",
+              "aura",
+              "summon",
+              "regen",
+              "enrage"
+            ]
+          }
+        }
+      }
+    },
+    "encounter": {
+      "type": "object",
+      "properties": {
+        "trigger": {
+          "enum": [
+            "summon_item",
+            "command",
+            "natural_spawn"
+          ]
+        },
+        "summon_item": {
+          "type": "object",
+          "properties": {
+            "required_block": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "dimension": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "consume": {
+              "type": "boolean"
+            },
+            "recipe": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": [
+                    "pattern",
+                    "key"
+                  ],
+                  "properties": {
+                    "pattern": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 3,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 3
+                      }
+                    },
+                    "key": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9_.-]+:[a-z0-9_./-]+$"
+                      }
+                    }
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "natural_spawn": {
+          "type": "object",
+          "properties": {
+            "biomes": {
+              "type": "string"
+            },
+            "weight": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "boss_bar": {
+          "type": "object",
+          "properties": {
+            "show": {
+              "type": "boolean"
+            },
+            "color": {
+              "enum": [
+                "pink",
+                "blue",
+                "red",
+                "green",
+                "yellow",
+                "purple",
+                "white"
+              ]
+            },
+            "overlay": {
+              "enum": [
+                "progress",
+                "notched_6",
+                "notched_10",
+                "notched_12",
+                "notched_20"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "rewards": {
+      "type": "object",
+      "properties": {
+        "essence": {
+          "type": "object",
+          "properties": {
+            "min": {
+              "type": "integer"
+            },
+            "max": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "sounds": {
+      "type": "object",
+      "properties": {
+        "hurt": {
+          "type": "string",
+          "pattern": "^[a-z0-9_.-]+:[a-z0-9_./-]+$"
+        },
+        "death": {
+          "type": "string",
+          "pattern": "^[a-z0-9_.-]+:[a-z0-9_./-]+$"
+        },
+        "ambient": {
+          "type": "string",
+          "pattern": "^[a-z0-9_.-]+:[a-z0-9_./-]+$"
+        }
+      }
+    }
+  }
+}

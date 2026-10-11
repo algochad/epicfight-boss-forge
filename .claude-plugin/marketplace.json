@@ -1,0 +1,1 @@
+{"name":"boss-forge","owner":{"name":"Jhon Burn Villamor"},"metadata":{"description":"Skills for building Epic Fight boss mods","version":"0.1.0"},"plugins":[{"name":"epicfight-boss-forge","source":"./","description":"Epic Fight boss-mod toolkit (Forge 1.20.1)","category":"development","keywords":["minecraft","forge","epic-fight","boss"]}]}

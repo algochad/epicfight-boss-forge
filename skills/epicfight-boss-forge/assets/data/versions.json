@@ -1,0 +1,16 @@
+{
+  "skill_version": "0.1.0",
+  "minecraft": "1.20.1",
+  "java": 17,
+  "pack_format": 15,
+  "forge": "47.4.10",
+  "forge_fallback": "47.4.4",
+  "epicfight": {
+    "mod_id": "epicfight",
+    "version": "20.14.17",
+    "gradle_coordinate": "maven.modrinth:epic-fight:20.14.17-mc1.20.1-forge",
+    "version_range": "[20.14.17,)",
+    "assets_ref": "9d25f19c121c5e51b1db9efe01833a563706eeee",
+    "assets_path": "src/main/resources/assets/epicfight/animmodels/entity"
+  }
+}

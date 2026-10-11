@@ -1,0 +1,386 @@
+{
+  "biped": {
+    "fist": {
+      "style": "common",
+      "series": [
+        {
+          "id": "combo",
+          "weight": 100,
+          "canBeInterrupted": true,
+          "looping": true,
+          "cooldown": 0,
+          "behaviors": [
+            {
+              "animation": "zombie/attack1",
+              "chance": null,
+              "min": 0,
+              "max": 1.8,
+              "eye_height_only": false
+            },
+            {
+              "animation": "zombie/attack2",
+              "chance": null,
+              "min": 0,
+              "max": 1.8,
+              "eye_height_only": false
+            },
+            {
+              "animation": "zombie/attack3",
+              "chance": null,
+              "min": 0,
+              "max": 1.8,
+              "eye_height_only": false
+            }
+          ]
+        }
+      ]
+    },
+    "sword": {
+      "style": "one_hand",
+      "series": [
+        {
+          "id": "combo",
+          "weight": 100,
+          "canBeInterrupted": true,
+          "looping": true,
+          "cooldown": 0,
+          "behaviors": [
+            {
+              "animation": "biped/combat/mob_onehand1",
+              "chance": null,
+              "min": 0,
+              "max": 2.0,
+              "eye_height_only": false
+            },
+            {
+              "animation": "biped/combat/mob_onehand2",
+              "chance": null,
+              "min": 0,
+              "max": 2.0,
+              "eye_height_only": false
+            }
+          ]
+        }
+      ]
+    },
+    "axe": {
+      "style": "one_hand",
+      "series": [
+        {
+          "id": "combo",
+          "weight": 100,
+          "canBeInterrupted": true,
+          "looping": true,
+          "cooldown": 0,
+          "behaviors": [
+            {
+              "animation": "biped/combat/mob_onehand1",
+              "chance": null,
+              "min": 0,
+              "max": 2.0,
+              "eye_height_only": false
+            },
+            {
+              "animation": "biped/combat/mob_onehand2",
+              "chance": null,
+              "min": 0,
+              "max": 2.0,
+              "eye_height_only": false
+            }
+          ]
+        }
+      ]
+    },
+    "dagger": {
+      "style": "one_hand",
+      "series": [
+        {
+          "id": "combo",
+          "weight": 100,
+          "canBeInterrupted": true,
+          "looping": false,
+          "cooldown": 0,
+          "behaviors": [
+            {
+              "animation": "biped/combat/mob_dagger_onehand1",
+              "chance": null,
+              "min": 0,
+              "max": 2.0,
+              "eye_height_only": false
+            },
+            {
+              "animation": "biped/combat/mob_dagger_onehand2",
+              "chance": null,
+              "min": 0,
+              "max": 2.0,
+              "eye_height_only": false
+            },
+            {
+              "animation": "biped/combat/mob_dagger_onehand3",
+              "chance": null,
+              "min": 0,
+              "max": 2.0,
+              "eye_height_only": false
+            }
+          ]
+        }
+      ]
+    },
+    "spear": {
+      "style": "two_hand",
+      "series": [
+        {
+          "id": "combo",
+          "weight": 100,
+          "canBeInterrupted": false,
+          "looping": false,
+          "cooldown": 0,
+          "behaviors": [
+            {
+              "animation": "biped/combat/mob_spear_twohand1",
+              "chance": null,
+              "min": 0,
+              "max": 3.0,
+              "eye_height_only": false
+            },
+            {
+              "animation": "biped/combat/mob_spear_twohand2",
+              "chance": null,
+              "min": 0,
+              "max": 3.0,
+              "eye_height_only": false
+            },
+            {
+              "animation": "biped/combat/mob_spear_twohand3",
+              "chance": null,
+              "min": 0,
+              "max": 3.0,
+              "eye_height_only": false
+            }
+          ]
+        },
+        {
+          "id": "heavy",
+          "weight": 50,
+          "canBeInterrupted": false,
+          "looping": false,
+          "cooldown": 100,
+          "behaviors": [
+            {
+              "animation": "biped/combat/mob_spear_twohand3",
+              "chance": null,
+              "min": 0,
+              "max": 3.0,
+              "eye_height_only": false
+            }
+          ]
+        }
+      ]
+    },
+    "longsword": {
+      "style": "two_hand",
+      "series": [
+        {
+          "id": "combo",
+          "weight": 100,
+          "canBeInterrupted": false,
+          "looping": false,
+          "cooldown": 0,
+          "behaviors": [
+            {
+              "animation": "biped/combat/mob_longsword1",
+              "chance": null,
+              "min": 0,
+              "max": 2.5,
+              "eye_height_only": false
+            },
+            {
+              "animation": "biped/combat/mob_longsword2",
+              "chance": null,
+              "min": 0,
+              "max": 2.5,
+              "eye_height_only": false
+            }
+          ]
+        },
+        {
+          "id": "heavy",
+          "weight": 100,
+          "canBeInterrupted": false,
+          "looping": false,
+          "cooldown": 60,
+          "behaviors": [
+            {
+              "animation": "biped/combat/mob_longsword2",
+              "chance": 0.4,
+              "min": 0,
+              "max": 2.5,
+              "eye_height_only": false
+            }
+          ]
+        }
+      ]
+    },
+    "tachi": {
+      "style": "two_hand",
+      "series": [
+        {
+          "id": "combo",
+          "weight": 100,
+          "canBeInterrupted": false,
+          "looping": false,
+          "cooldown": 0,
+          "behaviors": [
+            {
+              "animation": "biped/combat/mob_longsword1",
+              "chance": null,
+              "min": 0,
+              "max": 2.5,
+              "eye_height_only": false
+            },
+            {
+              "animation": "biped/combat/mob_longsword2",
+              "chance": null,
+              "min": 0,
+              "max": 2.5,
+              "eye_height_only": false
+            }
+          ]
+        },
+        {
+          "id": "heavy",
+          "weight": 100,
+          "canBeInterrupted": false,
+          "looping": false,
+          "cooldown": 60,
+          "behaviors": [
+            {
+              "animation": "biped/combat/mob_longsword2",
+              "chance": 0.4,
+              "min": 0,
+              "max": 2.5,
+              "eye_height_only": false
+            }
+          ]
+        },
+        {
+          "id": "special",
+          "weight": 100,
+          "canBeInterrupted": false,
+          "looping": false,
+          "cooldown": 100,
+          "behaviors": [
+            {
+              "animation": "biped/combat/mob_tachi_special",
+              "chance": null,
+              "min": 0,
+              "max": 4.0,
+              "eye_height_only": false
+            }
+          ]
+        }
+      ]
+    },
+    "greatsword": {
+      "style": "two_hand",
+      "series": [
+        {
+          "id": "combo",
+          "weight": 100,
+          "canBeInterrupted": false,
+          "looping": false,
+          "cooldown": 0,
+          "behaviors": [
+            {
+              "animation": "biped/combat/greatsword_auto1",
+              "chance": null,
+              "min": 0,
+              "max": 3.0,
+              "eye_height_only": false
+            },
+            {
+              "animation": "biped/combat/greatsword_auto2",
+              "chance": null,
+              "min": 0,
+              "max": 3.0,
+              "eye_height_only": false
+            },
+            {
+              "animation": "biped/combat/mob_greatsword1",
+              "chance": 0.3,
+              "min": 0,
+              "max": 3.0,
+              "eye_height_only": false
+            }
+          ]
+        },
+        {
+          "id": "heavy",
+          "weight": 50,
+          "canBeInterrupted": false,
+          "looping": false,
+          "cooldown": 100,
+          "behaviors": [
+            {
+              "animation": "biped/combat/mob_greatsword1",
+              "chance": null,
+              "min": 0,
+              "max": 3.0,
+              "eye_height_only": false
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "iron_golem": {
+    "series": [
+      {
+        "id": "smash",
+        "weight": 10,
+        "canBeInterrupted": true,
+        "looping": false,
+        "cooldown": 0,
+        "behaviors": [
+          {
+            "animation": "iron_golem/attack2",
+            "chance": null,
+            "min": 0,
+            "max": 2.0,
+            "eye_height_only": false
+          }
+        ]
+      },
+      {
+        "id": "combo",
+        "weight": 10,
+        "canBeInterrupted": false,
+        "looping": false,
+        "cooldown": 0,
+        "behaviors": [
+          {
+            "animation": "iron_golem/attack3",
+            "chance": null,
+            "min": 0,
+            "max": 2.0,
+            "eye_height_only": false
+          },
+          {
+            "animation": "iron_golem/attack4",
+            "chance": null,
+            "min": null,
+            "max": null,
+            "eye_height_only": true
+          },
+          {
+            "animation": "iron_golem/attack1",
+            "chance": 0.3,
+            "min": 0,
+            "max": 2.0,
+            "eye_height_only": false
+          }
+        ]
+      }
+    ]
+  }
+}

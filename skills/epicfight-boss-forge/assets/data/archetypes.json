@@ -1,0 +1,549 @@
+{
+  "knight": {
+    "description": "Armored human knight",
+    "palette": {
+      "primary": "#9aa5b8",
+      "secondary": "#8c1a20",
+      "accent": "#d4aa32",
+      "skin": "#c89a7c",
+      "hair": "#6a4a30",
+      "eyes": "#46a0ff"
+    },
+    "regions": {
+      "head": {
+        "material": "skin",
+        "color": "skin"
+      },
+      "torso": {
+        "material": "plate_steel",
+        "color": "primary"
+      },
+      "arms": {
+        "material": "plate_steel",
+        "color": "primary"
+      },
+      "legs": {
+        "material": "chainmail",
+        "color": "primary"
+      },
+      "hands": {
+        "material": "leather",
+        "color": "secondary"
+      },
+      "feet": {
+        "material": "leather",
+        "color": "secondary"
+      }
+    },
+    "features": [
+      {
+        "type": "eyes",
+        "style": "human"
+      },
+      {
+        "type": "brow"
+      },
+      {
+        "type": "hair",
+        "style": "short",
+        "color": "hair"
+      },
+      {
+        "type": "trim",
+        "region": "torso",
+        "where": "hem",
+        "color": "accent"
+      },
+      {
+        "type": "emblem",
+        "shape": "cross",
+        "region": "torso",
+        "face": "front",
+        "color": "accent"
+      }
+    ],
+    "overlay": [
+      {
+        "region": "torso",
+        "material": "plate_steel",
+        "color": "primary",
+        "y": [
+          0.3,
+          1.0
+        ]
+      },
+      {
+        "region": "arm_l",
+        "material": "plate_steel",
+        "color": "primary",
+        "y": [
+          0.55,
+          1.0
+        ]
+      },
+      {
+        "region": "arm_r",
+        "material": "plate_steel",
+        "color": "primary",
+        "y": [
+          0.55,
+          1.0
+        ]
+      },
+      {
+        "region": "leg_l",
+        "material": "plate_steel",
+        "color": "primary",
+        "y": [
+          0.0,
+          0.45
+        ]
+      },
+      {
+        "region": "leg_r",
+        "material": "plate_steel",
+        "color": "primary",
+        "y": [
+          0.0,
+          0.45
+        ]
+      }
+    ],
+    "faction": "neutral",
+    "sounds": {
+      "hurt": "minecraft:entity.piglin_brute.hurt",
+      "death": "minecraft:entity.piglin_brute.death"
+    }
+  },
+  "undead": {
+    "description": "Skeletal or risen dead",
+    "palette": {
+      "primary": "#8f9a86",
+      "secondary": "#3b3f45",
+      "accent": "#7fd6a0",
+      "skin": "#9aa88f",
+      "hair": "#2a2a2a",
+      "eyes": "#7fffb0"
+    },
+    "regions": {
+      "head": {
+        "material": "bone",
+        "color": "skin"
+      },
+      "torso": {
+        "material": "cloth",
+        "color": "secondary"
+      },
+      "arms": {
+        "material": "bone",
+        "color": "skin"
+      },
+      "legs": {
+        "material": "bone",
+        "color": "skin"
+      },
+      "hands": {
+        "material": "bone",
+        "color": "skin"
+      },
+      "feet": {
+        "material": "bone",
+        "color": "skin"
+      }
+    },
+    "features": [
+      {
+        "type": "eyes",
+        "style": "hollow",
+        "glow": true
+      },
+      {
+        "type": "hair",
+        "style": "bald"
+      },
+      {
+        "type": "cracks",
+        "color": "accent"
+      },
+      {
+        "type": "wear"
+      }
+    ],
+    "overlay": [],
+    "faction": "undead",
+    "sounds": {
+      "hurt": "minecraft:entity.wither_skeleton.hurt",
+      "death": "minecraft:entity.wither_skeleton.death"
+    }
+  },
+  "beast": {
+    "description": "Furred beast-man",
+    "palette": {
+      "primary": "#6b4a2f",
+      "secondary": "#3a2a1a",
+      "accent": "#d9c7a3",
+      "skin": "#6b4a2f",
+      "hair": "#3a2a1a",
+      "eyes": "#ffb347"
+    },
+    "regions": {
+      "head": {
+        "material": "fur",
+        "color": "skin"
+      },
+      "torso": {
+        "material": "fur",
+        "color": "primary"
+      },
+      "arms": {
+        "material": "fur",
+        "color": "primary"
+      },
+      "legs": {
+        "material": "fur",
+        "color": "primary"
+      },
+      "hands": {
+        "material": "leather",
+        "color": "secondary"
+      },
+      "feet": {
+        "material": "leather",
+        "color": "secondary"
+      }
+    },
+    "features": [
+      {
+        "type": "eyes",
+        "style": "slit"
+      },
+      {
+        "type": "scar",
+        "side": "right"
+      },
+      {
+        "type": "wear"
+      }
+    ],
+    "overlay": [],
+    "faction": "neutral",
+    "sounds": {
+      "hurt": "minecraft:entity.ravager.hurt",
+      "death": "minecraft:entity.ravager.death"
+    }
+  },
+  "demon": {
+    "description": "Scaled infernal fiend",
+    "palette": {
+      "primary": "#5a1010",
+      "secondary": "#1a0a0a",
+      "accent": "#ff6a1a",
+      "skin": "#7a1818",
+      "hair": "#1a0a0a",
+      "eyes": "#ffb347"
+    },
+    "regions": {
+      "head": {
+        "material": "scales",
+        "color": "skin"
+      },
+      "torso": {
+        "material": "scales",
+        "color": "primary"
+      },
+      "arms": {
+        "material": "scales",
+        "color": "primary"
+      },
+      "legs": {
+        "material": "scales",
+        "color": "primary"
+      },
+      "hands": {
+        "material": "stone",
+        "color": "secondary"
+      },
+      "feet": {
+        "material": "stone",
+        "color": "secondary"
+      }
+    },
+    "features": [
+      {
+        "type": "eyes",
+        "style": "slit",
+        "glow": true
+      },
+      {
+        "type": "cracks",
+        "color": "accent"
+      },
+      {
+        "type": "emblem",
+        "shape": "rune_circle",
+        "region": "torso",
+        "face": "back",
+        "color": "accent"
+      }
+    ],
+    "overlay": [],
+    "faction": "neutral",
+    "sounds": {
+      "hurt": "minecraft:entity.blaze.hurt",
+      "death": "minecraft:entity.blaze.death"
+    }
+  },
+  "elemental": {
+    "description": "Living stone and energy",
+    "palette": {
+      "primary": "#2a4a7a",
+      "secondary": "#1a2a4a",
+      "accent": "#7fd6ff",
+      "skin": "#3a5a8a",
+      "hair": "#1a2a4a",
+      "eyes": "#bfeaff"
+    },
+    "regions": {
+      "head": {
+        "material": "stone",
+        "color": "primary"
+      },
+      "torso": {
+        "material": "stone",
+        "color": "primary"
+      },
+      "arms": {
+        "material": "stone",
+        "color": "primary"
+      },
+      "legs": {
+        "material": "stone",
+        "color": "primary"
+      },
+      "hands": {
+        "material": "stone",
+        "color": "secondary"
+      },
+      "feet": {
+        "material": "stone",
+        "color": "secondary"
+      }
+    },
+    "features": [
+      {
+        "type": "eyes",
+        "style": "hollow",
+        "glow": true
+      },
+      {
+        "type": "cracks",
+        "color": "accent"
+      },
+      {
+        "type": "runes",
+        "color": "accent"
+      }
+    ],
+    "overlay": [],
+    "faction": "neutral",
+    "sounds": {
+      "hurt": "minecraft:entity.iron_golem.hurt",
+      "death": "minecraft:entity.iron_golem.death"
+    }
+  },
+  "golem": {
+    "description": "Hewn stone construct",
+    "palette": {
+      "primary": "#7a7a80",
+      "secondary": "#4a4a50",
+      "accent": "#c8a050",
+      "skin": "#7a7a80",
+      "hair": "#4a4a50",
+      "eyes": "#ffd27a"
+    },
+    "regions": {
+      "head": {
+        "material": "stone",
+        "color": "primary"
+      },
+      "torso": {
+        "material": "stone",
+        "color": "primary"
+      },
+      "arms": {
+        "material": "stone",
+        "color": "primary"
+      },
+      "legs": {
+        "material": "stone",
+        "color": "primary"
+      },
+      "hands": {
+        "material": "stone",
+        "color": "secondary"
+      },
+      "feet": {
+        "material": "stone",
+        "color": "secondary"
+      }
+    },
+    "features": [
+      {
+        "type": "eyes",
+        "style": "visor",
+        "glow": true
+      },
+      {
+        "type": "plates"
+      },
+      {
+        "type": "cracks",
+        "color": "accent"
+      },
+      {
+        "type": "wear"
+      }
+    ],
+    "overlay": [],
+    "faction": "neutral",
+    "sounds": {
+      "hurt": "minecraft:entity.iron_golem.hurt",
+      "death": "minecraft:entity.iron_golem.death"
+    }
+  },
+  "wraith": {
+    "description": "Hooded spectral figure",
+    "palette": {
+      "primary": "#2b2b3a",
+      "secondary": "#14141c",
+      "accent": "#a98bff",
+      "skin": "#5a5a70",
+      "hair": "#14141c",
+      "eyes": "#c9b6ff"
+    },
+    "regions": {
+      "head": {
+        "material": "skin",
+        "color": "skin"
+      },
+      "torso": {
+        "material": "cloth",
+        "color": "primary"
+      },
+      "arms": {
+        "material": "cloth",
+        "color": "primary"
+      },
+      "legs": {
+        "material": "cloth",
+        "color": "primary"
+      },
+      "hands": {
+        "material": "cloth",
+        "color": "secondary"
+      },
+      "feet": {
+        "material": "cloth",
+        "color": "secondary"
+      }
+    },
+    "features": [
+      {
+        "type": "eyes",
+        "style": "hollow",
+        "glow": true
+      },
+      {
+        "type": "hair",
+        "style": "hood",
+        "color": "secondary"
+      },
+      {
+        "type": "wear"
+      }
+    ],
+    "overlay": [],
+    "faction": "undead",
+    "sounds": {
+      "hurt": "minecraft:entity.vex.hurt",
+      "death": "minecraft:entity.vex.death"
+    }
+  },
+  "cultist": {
+    "description": "Robed fanatic",
+    "palette": {
+      "primary": "#3a1f4a",
+      "secondary": "#1a1020",
+      "accent": "#c9a227",
+      "skin": "#b08a70",
+      "hair": "#1a1020",
+      "eyes": "#ffcc33"
+    },
+    "regions": {
+      "head": {
+        "material": "skin",
+        "color": "skin"
+      },
+      "torso": {
+        "material": "cloth",
+        "color": "primary"
+      },
+      "arms": {
+        "material": "cloth",
+        "color": "primary"
+      },
+      "legs": {
+        "material": "cloth",
+        "color": "primary"
+      },
+      "hands": {
+        "material": "leather",
+        "color": "secondary"
+      },
+      "feet": {
+        "material": "leather",
+        "color": "secondary"
+      }
+    },
+    "features": [
+      {
+        "type": "eyes",
+        "style": "slit"
+      },
+      {
+        "type": "hair",
+        "style": "hood",
+        "color": "primary"
+      },
+      {
+        "type": "emblem",
+        "shape": "rune_circle",
+        "region": "torso",
+        "face": "front",
+        "color": "accent"
+      },
+      {
+        "type": "trim",
+        "region": "torso",
+        "where": "hem",
+        "color": "accent"
+      },
+      {
+        "type": "trim",
+        "region": "arms",
+        "where": "cuff",
+        "color": "accent"
+      },
+      {
+        "type": "runes",
+        "color": "accent"
+      }
+    ],
+    "overlay": [],
+    "faction": "illager",
+    "sounds": {
+      "hurt": "minecraft:entity.evoker.hurt",
+      "death": "minecraft:entity.evoker.death"
+    }
+  }
+}
