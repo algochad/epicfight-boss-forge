@@ -16,6 +16,6 @@ Compile gate (proves the Java templates): `cd DIR && ./gradlew --no-daemon compi
 8. Weapon: obtainable (drop/recipe), on-hit effect applies, and the boss spawns without an NPE (EF attributes registered).
 9. Spawn: sigil on the required block, command, or natural spawn.
 
-## Render test in a dev client (maintainers)
+## Render test in a dev client
 
-Offline checks cannot prove a custom mesh renders: the mobpatch `renderer` decides which mesh EF draws (a wrong renderer silently draws the stock biped with the custom atlas scrambled across it). To see the real result, copy the generated project, add a tiny client-side test class that summons the boss (`/summon <mod>:<id> x y z {NoAI:1b,NoGravity:1b,Rotation:[180.0f,0.0f]}`) in open air and calls `Screenshot.grab` after about 200 ticks, then run `./gradlew runClient`. EF's mixins need the SRG refmap remapped in a dev environment: add to the `client` run `property 'mixin.env.remapRefMap', 'true'` and `property 'mixin.env.refMapRemappingFile', "${projectDir}/build/createSrgToMcp/output.srg"`.
+`bossforge render-test --project DIR` is the render gate: it runs the mod in a Forge dev client, photographs the boss from five angles and checks which mesh Epic Fight drew. The full process, mesh rules, symptom table and debug recipes are in `render-pipeline.md`.

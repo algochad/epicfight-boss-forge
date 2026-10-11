@@ -608,6 +608,8 @@ def add_boss(spec_path, project_dir, cache_dir=None, offline: bool = False, forc
         out["wiring_instructions"] = {"line": wiring["line"], "imports": wiring["imports"]}
     out["next"] = ["read %s/bossforge/previews/%s_preview.png" % (root, n["id"]),
                    "cd %s && ./gradlew --no-daemon compileJava processResources   (JDK 17)" % root,
+                   "RENDER GATE: python3 scripts/bossforge.py render-test --project %s --boss %s  (needs a display + JDK 17), then READ the screenshots; "
+                   "without it the boss is NOT verified to render (references/render-pipeline.md)" % (root, n["id"]),
                    "see references/qa.md for the in-game checklist"]
     return out
 

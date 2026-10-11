@@ -61,13 +61,14 @@ Size note: Minecraft hitboxes are square, so `size.width` is both width and dept
 5. [ ] Review gate (below). Weapons: `bossforge weapon boss.json --out /tmp/bf-out` and read `<id>_weapons.png`.
 6. [ ] New mod: `bossforge new-mod --mod-id MOD --mod-name "Name" --out DIR`. Then `bossforge add-boss boss.json --project DIR`.
 7. [ ] Compile gate when a JDK exists: `cd DIR && ./gradlew --no-daemon compileJava processResources` (needs JDK 17).
-8. [ ] Report: files written, warnings, `wiring_required`, what is unverified in game (see `references/qa.md`).
+8. [ ] RENDER GATE (never skip): `bossforge render-test --project DIR [--boss ID]` runs the real mod in a Forge dev client (needs a display, JDK 17, ~2 GB RAM, first run downloads Minecraft) and saves five screenshots to `DIR/bossforge/render-test/`. `ok` must be true (`mesh_positions_seen` equals `mesh_positions_expected`), then READ every screenshot and compare with the user's description. Offline checks and the skin preview do NOT prove the boss renders; a boss that was not rendered must be reported as "render not verified". Process and failure table: `references/render-pipeline.md`.
+9. [ ] Report: files written, warnings, `wiring_required`, what was verified (compile, render screenshots) and what is unverified in game (see `references/qa.md`).
 
 `add-boss` is idempotent. Re-running reports `unchanged`; files you edited by hand are listed under `conflicts` and kept unless `--force`. Specs are copied to `<project>/bossforge/bosses/<id>.boss.json`; edit that and re-run to regenerate. Lang files are merged: existing keys are never overwritten.
 
 ## Review gate
 
-You cannot judge your own visual work. After `skin`: open the preview image, describe what is visible (face on the FRONT panel, silhouette from the side and back, palette, emblem, armor, glowing parts, empty areas), judge it honestly against the user's description ("is this a king, or a generic armored guy?"), then ask the user to approve or request changes BEFORE `add-boss`. A missing answer is not approval. Never hand-edit PNGs or mesh JSON; change the spec and regenerate. Weapons: read `<id>_weapons.png` the same way.
+You cannot judge your own visual work. After `skin`: open the preview image, describe what is visible (face on the FRONT panel, silhouette from the side and back, palette, emblem, armor, glowing parts, empty areas), judge it honestly against the user's description ("is this a king, or a generic armored guy?"), then ask the user to approve or request changes BEFORE `add-boss`. A missing answer is not approval. Never hand-edit PNGs or mesh JSON; change the spec and regenerate. Weapons: read `<id>_weapons.png` the same way. Repeat the same judgment on the `render-test` screenshots, which show the boss as the game really draws it.
 
 ## Gotchas (verified from Epic Fight 1.20.1 / Forge 1.20.1 source)
 
@@ -103,6 +104,7 @@ You cannot judge your own visual work. After `skin`: open the preview image, des
 | `patch SPEC --out DIR` | EF mobpatch JSON only |
 | `new-mod --mod-id --mod-name --out DIR [--group G --author A --description D --mdk-zip Z --forge-version V]` | Forge 1.20.1 + EF project |
 | `add-boss SPEC --project DIR [--force] [--dry-run] [--ef-jar JAR]` (alias `build`) | everything for one boss |
+| `render-test --project DIR [--boss ID] [--out DIR] [--timeout S] [--keep]` | render the boss in a real Forge dev client, save 5 screenshots, verify which mesh EF drew |
 | `lore SPEC --out DIR` | design doc |
 | `qa --project DIR` | project checks |
 | `catalog --ef-ref SHA --out FILE` | maintainer: rebuild animation catalog |
@@ -122,6 +124,7 @@ Global flags: `--cache-dir DIR` (default `$BOSSFORGE_CACHE` or `~/.cache/epicfig
 | `references/weapon-forge.md` | weapon categories, sprites, EF capability, obtainability |
 | `references/forge-1.20.1.md` | generated classes, wiring, build, MDK/JDK notes |
 | `references/encounters.md` | summon item, command, natural spawn, hidden-boss design |
+| `references/render-pipeline.md` | how a boss is drawn (renderer/model/mesh/texture), the render gate process, symptom -> cause table, debug recipes |
 | `references/qa.md` | verification checklist and in-game checks |
 | `references/sources.md` | source URLs |
 

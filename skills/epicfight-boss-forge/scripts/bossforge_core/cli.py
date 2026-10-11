@@ -300,6 +300,12 @@ def cmd_qa(args) -> int:
                 0 if not hard else 1)
 
 
+def cmd_render_test(args) -> int:
+    from . import rendertest
+    res = rendertest.run(args.project, args.boss, args.out, timeout=args.timeout, keep=args.keep)
+    return _out(res, 0 if res.get("ok") else 1)
+
+
 def cmd_catalog(args) -> int:
     from . import catalog, efassets
     data = catalog.build(args.ef_ref, args.out, efassets.http_get)
@@ -365,6 +371,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("qa", help="check a generated project")
     s.add_argument("--project", required=True); s.add_argument("--spec"); s.set_defaults(fn=cmd_qa)
+
+    s = sub.add_parser("render-test", help="render the boss in a real Forge dev client and take screenshots (needs a display + JDK 17)")
+    s.add_argument("--project", required=True); s.add_argument("--boss"); s.add_argument("--out")
+    s.add_argument("--timeout", type=int, default=900); s.add_argument("--keep", action="store_true", help="keep the temporary project copy")
+    s.set_defaults(fn=cmd_render_test)
 
     s = sub.add_parser("catalog", help="(maintainer) rebuild the Epic Fight animation catalog")
     s.add_argument("--ef-ref", required=True); s.add_argument("--out", required=True); s.set_defaults(fn=cmd_catalog)

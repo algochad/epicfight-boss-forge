@@ -70,6 +70,7 @@ All commands print one JSON object; exit 0 ok, 1 failure, 2 usage. Global flags 
 | `add-boss SPEC --project DIR` (alias `build`) | everything for a boss; idempotent, hand edits are never overwritten without `--force` |
 | `lore SPEC --out DIR` | design doc |
 | `qa --project DIR` | project checks |
+| `render-test --project DIR` | render the boss in a Forge dev client, 5 screenshots, verifies the mesh EF drew (needs a display + JDK 17) |
 | `catalog` | maintainer: rebuild the animation catalog |
 
 ## Layout
