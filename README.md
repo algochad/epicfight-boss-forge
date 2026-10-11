@@ -20,17 +20,16 @@ The repo is one skill (`skills/epicfight-boss-forge/`) packaged for several agen
 
 ```bash
 # any agent supported by vercel-labs/skills (Claude Code, Codex, Cursor, omp, ...)
-npx skills add /path/to/epicfight-boss-forge
-npx skills add <owner>/epicfight-boss-forge          # after you publish the repo
+npx skills add algochad/epicfight-boss-forge
 
 # Claude Code plugin marketplace
-claude plugin marketplace add ./ && claude plugin install epicfight-boss-forge@boss-forge
+claude plugin marketplace add algochad/epicfight-boss-forge && claude plugin install epicfight-boss-forge@boss-forge
 
 # omp plugin marketplace
-omp plugin marketplace add ./ && omp plugin install epicfight-boss-forge@boss-forge
+omp plugin marketplace add algochad/epicfight-boss-forge && omp plugin install epicfight-boss-forge@boss-forge
 ```
 
-To publish: `gh repo create epicfight-boss-forge --public --source . --push` (the repo has no remote yet).
+From a local checkout, use `npx skills add /path/to/epicfight-boss-forge` or `plugin marketplace add ./`.
 
 ## Quickstart (King Arthur)
 
