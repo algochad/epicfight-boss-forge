@@ -386,7 +386,7 @@ def run(project, spec_raw: Optional[dict] = None, cache_dir=None) -> List[_spec.
         if not sp.is_file():
             errs.append(Err("/bosses/" + bid, "qa_missing_spec", "spec %s is missing" % entry["spec"]))
             continue
-        n, verrs, _w = _spec.check(json.loads(sp.read_text(encoding="utf-8")))
+        n, verrs, _w = _spec.check(_spec.load(sp))  # load() records the spec dir so staged reference images resolve
         errs.extend(Err("/bosses/%s%s" % (bid, e.path), e.code, e.message) for e in verrs)
         if verrs:
             continue

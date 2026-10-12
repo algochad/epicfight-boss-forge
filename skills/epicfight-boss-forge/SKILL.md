@@ -52,7 +52,16 @@ Ask only what is missing, in ONE batch, with the host's question tool (omp `ask`
 
 ### The user gives a reference image or character sheet
 
-Treat it as the acceptance test, not as inspiration. Read the image, then write a numbered checklist of every visible feature (proportions, head and hair, face, each garment and its trim colours, back pieces such as wings or capes, footwear, held items, small props, glow accents) and map each item to a spec field (`shape.attachments`, `shape.parts`, `appearance.features`, weapon `appearance`). After every `skin` preview, re-read the reference and the preview together and tick the checklist item by item; list what still differs and fix it by changing the spec or by improving the generator (a missing preset, material or feature is a generator gap to close in `scripts/bossforge_core/`, not a reason to ship a simplified boss). Say plainly which items can only be approximated (an exact imported model is not possible: the boss is boxes on the Epic Fight biped rig, painted by the generator). Only ask the user to approve once the checklist is ticked or the remaining differences are listed. See `references/intake.md` "Reference images".
+Treat it as the acceptance test, not as inspiration, and use the reference pipeline (`references/reference-fit.md`, read it first). A pasted image is NOT a model: the 3D shape is rebuilt from it, so be honest that the copy is as close as boxes on the Epic Fight biped rig allow, never "exact", and report the measured numbers.
+
+1. Write a checklist of every visible feature (proportions, hair, face, each garment and trim, back pieces such as wings, footwear, held items, props, glow) and map each item to a spec field.
+2. Stage the image as PNG (`magick in.webp out.png` if needed) and look at it with `bossforge reference-info IMAGE --grid 50`. Only ORTHOGRAPHIC views (front/back/side sheets) can be projected; a perspective hero shot is only for reading colours.
+3. Add a `reference.views` block (crop, mask, `ground_y`, `center_x`, `px_per_block`) per view and run `bossforge fit boss.json --out DIR` (`--auto-calibrate` if unsure). READ the overlay PNGs and the `hints`; adjust `proportions`, attachments and `parts` until the IoU per view is as high as the boxes allow.
+4. Build what presets cannot express with the `relief` preset (wings, hair masses, hems from the silhouette).
+5. Bake the texture from the real pixels with `reference.bake` (the `skin` output reports how many texels were sampled directly; `bake_low_coverage` means the calibration is wrong).
+6. Run the compile and RENDER gates, compare the in-game screenshots with the reference, and tell the user what differs (IoU numbers, missing back-view wing, flat cloth, no flapping).
+
+The generated mod never contains the reference images: `add-boss` copies them to `<project>/bossforge/refs/` (not shipped in the jar). Do not commit a user's pasted art to a public repo.
 
 Size note: Minecraft hitboxes are square, so `size.width` is both width and depth, and `size.height` is the TOTAL height including crown/horns (it sets the mesh `scale`; the hitbox comes from the entity type). With a `shape` block the body is a custom mesh on the EF biped rig; without one it is a stock EF mesh (`biped`, or `iron_golem` for wide weaponless brutes via `body.template`).
 
@@ -103,7 +112,7 @@ You cannot judge your own visual work. After `skin`: open the preview image, des
 | `fetch-ef-assets [--ef-jar JAR] [--ref SHA]` | cache EF meshes |
 | `mesh-info --template biped\|iron_golem` | mesh diagnostics |
 | `skin SPEC --out DIR [--mesh-file P]` | texture + preview (builds the custom mesh for `shape` bosses) |
-| `shape SPEC --out DIR` | build only the custom EF mesh JSON; prints boxes, atlas, bounds, warnings |
+| `shape SPEC --out DIR` | build only the custom EF mesh JSON; prints boxes, `box_counts` per owner (base, every attachment id, parts), atlas, `atlas_fill`, bounds, the measured IoU of every `relief` attachment, warnings |
 | `weapon SPEC (--out DIR \| --project DIR) [--essence-item ns:id] [--force] [--dry-run]` | weapon files, or add a weapon to a mod |
 | `patch SPEC --out DIR` | EF mobpatch JSON only |
 | `new-mod --mod-id --mod-name --out DIR [--group G --author A --description D --mdk-zip Z --forge-version V]` | Forge 1.20.1 + EF project |
@@ -119,6 +128,7 @@ Global flags: `--cache-dir DIR` (default `$BOSSFORGE_CACHE` or `~/.cache/epicfig
 
 | File | Read when |
 |---|---|
+| `references/reference-fit.md` | the user pasted concept art or a character sheet: views, masks, `fit`, `relief`, `reference.bake`, honest limits |
 | `references/shape-forge.md` | designing the boss's unique body: silhouettes, proportions, attachments (crown, horns, wings, cape, tail...), free-form boxes |
 | `references/intake.md` | turning the user's words into spec fields (shape, face, glow, heavy/slow, heals, minions) |
 | `references/boss-spec.md` | field table, defaults, validation codes, examples |

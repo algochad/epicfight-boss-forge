@@ -37,8 +37,8 @@ Design principles taken from boss mods (L_Ender's Cataclysm, Soulslike Weaponry,
 }
 ```
 
-- `silhouette`: optional preset name. `proportions`: overrides on the silhouette's. `attachments`: appended after the silhouette's; an attachment whose `id` equals a silhouette attachment REPLACES it. `remove`: ids of silhouette attachments to drop. `parts`: free-form boxes. `texture.density`: texels per block, 8-64 (default 32; 48 gives a crisp face and detail; the atlas is auto-sized to a square power of two up to 512 and the density is reduced with warning `density_reduced` if it does not fit).
-- Limits: <= 240 boxes after expansion (one preset adds at most 120 of them; `seraph` wings use 104), every vertex within |x| <= 4, y in [-1, 6], |z| <= 4 blocks (model space, before the mesh scale). Many thin boxes are cheap in the atlas, but each one costs a few hundred texels at `texture.density` 48: if `density_reduced` appears, lower `density` or remove small parts. A whole angel (seraph wings + slit skirt with hem layer + hairdo + ribbons + pouch + boots + pauldrons on the `caster` silhouette) is about 235 boxes: check `bossforge shape` before adding more pieces.
+- `silhouette`: optional preset name. `proportions`: overrides on the silhouette's. `attachments`: appended after the silhouette's; an attachment whose `id` equals a silhouette attachment REPLACES it. `remove`: ids of silhouette attachments to drop. `parts`: free-form boxes. `texture.density`: texels per block, 8-64 (default 32; 48 gives a crisp face and detail). `texture.atlas`: 512 (default) or 1024, the largest atlas that may be used: the atlas is auto-sized to the smallest square power of two (16..`atlas`) that holds every face rect at the requested density, so a small model stays small even with `atlas` 1024; the density is halved (down to 8) with warning `density_reduced` only when even the `atlas`-sized square does not fit, and `texture_too_large` is raised when 8 does not fit either. A 1024 atlas is 4x the area (dense relief parts and baked reference textures need it) and the texture PNG gets 4x the pixels; leave `atlas` unset for specs that fit 512.
+- Limits: <= 400 boxes after expansion (`shape.MAX_BOXES`; one stock preset adds at most 120 of them, `seraph` wings use 104, a `relief` attachment up to 386), every vertex within |x| <= 4, y in [-1, 6], |z| <= 4 blocks (model space, before the mesh scale). Many thin boxes are cheap in the atlas, but each one costs a few hundred texels at `texture.density` 48: if `density_reduced` appears, set `texture.atlas` 1024, lower `density` or remove small parts. A whole angel (seraph wings + slit skirt with hem layer + hairdo + ribbons + pouch + boots + pauldrons on the `caster` silhouette) is about 235 boxes: `bossforge shape` prints `boxes`, `box_counts` (boxes per owner: `base`, every attachment id, `parts`), `max_boxes`, `atlas`, `atlas_fill` (share of the atlas covered by face rects) and one `relief` entry per relief attachment, so you see how much of the budget each piece uses before adding more.
 - `size.height` is the TOTAL height (crown and horn tips included): the mesh scale is `size.height / model height`. `size.width` is only the hitbox width; wide wings or pauldrons may stick out of it.
 
 ## Silhouettes
@@ -108,6 +108,7 @@ Every preset also accepts `id` (default = preset name), `scale` (0.5-2.5), `colo
 | `hairdo` | Hair volume on the head in the `hair` palette colour (material `hair_soft`): a thin cap over the top and the upper back with the face left open, a bun, twin buns, ponytail or braid, centre-parted bangs ending above the brows, side locks beside the face down past the chin to the chest, a narrow tapering curtain behind the head down to the shoulder blades (never wider than the head), optionally white-blue ribbon loops behind the head and teal/gold leaf pins at the front sides. `accent` recolours the ribbon loops. | `style` bun/twin_buns/ponytail/braid; `bangs` (default True); `locks` (default True); `ribbon_loops` (default False); `pins` (default False) |
 | `ribbons` | Long thin ribbons drifting in 2-3 tilted, rigid segments: pairs from the wrists (past the hem), the hem sides, or the back of the head. White (`color`) and pale blue (`accent`) strips. Part of a ribbon that would sink below the floor trails along it. | `style` wrist/hem/back/all; `length` 0.5-2.0 |
 | `pouch` | Belt pouch on one hip (character's own side) with small glass vials on top and an optional thin belt around the waist. | `side` right/left; `vials` 0-4; `colors` list of 1-4 vial colours (palette keys or `#rrggbb`, cycled); `belt` (default True); `arm_clear` (default False): squeezes the pouch and the belt between the centre line and the arm's inner edge (a small pouch of about 0.09 next to the centre panel) so it never hides the hand |
+| `relief` | Boxes CUT OUT OF THE REFERENCE SILHOUETTES (needs the spec's `reference` block): stair-stepped wings, hair masses, hems, ornaments that no preset can express. Details and every parameter: "Relief parts" below. No `scale` parameter (the size comes from the art's calibration). | `mode` extrude/hull; `view`; `rect`; `views`; `bone`; `cell`; `thickness`; `z`; `layers`; `layer_step`; `max_boxes`; `mirror`; `edge_texels`; `ref_color`; `rotate`; `pivot` |
 
 Rigid pieces: capes, skirts, tails and wings are static boxes attached to a bone. They move with the body but do not flutter or flap. Skirts and tabards hang from the thigh bones in separate pieces so the legs stay free. Extra arms are static decoration.
 
@@ -140,10 +141,13 @@ Coordinates are model space in blocks in the biped bind pose: y up, feet at y=0,
  "mirror": true,                             # also emit the x-mirrored copy ("_r"<->"_l", otherwise "<id>_m")
  "material": "plate_steel", "color": "primary", "accent": "accent",
  "region": null,                             # head torso arm_l arm_r leg_l leg_r to receive appearance features
- "layer": "overlay", "skip_faces": [], "density": 1.0}
+ "layer": "overlay", "skip_faces": [], "density": 1.0,
+ "slab": "z", "edge_texels": 1}                # optional: thin slab, see below
 ```
 
-Bones: `root torso chest head arm_r forearm_r hand_r arm_l forearm_l hand_l thigh_r shin_r thigh_l shin_l`. A box follows its bone rigidly (the EF `Hand_R` joint is the forearm; `hand_*` is the wrist where the weapon sits). Rotation: `rz < 0` tilts the top toward +x, `rx > 0` tilts it toward +z. A box with its own `material`/`color` is painted from that style only; boxes without a style take the region defaults of their bone. Check codes: `bad_bone bad_size bad_taper bad_rotate bad_material bad_color bad_region too_many_boxes out_of_bounds duplicate_box_id unknown_key unknown_silhouette unknown_preset`.
+Bones: `root torso chest head arm_r forearm_r hand_r arm_l forearm_l hand_l thigh_r shin_r thigh_l shin_l`. A box follows its bone rigidly (the EF `Hand_R` joint is the forearm; `hand_*` is the wrist where the weapon sits). Rotation: `rz < 0` tilts the top toward +x, `rx > 0` tilts it toward +z. A box with its own `material`/`color` is painted from that style only; boxes without a style take the region defaults of their bone. Check codes: `bad_bone bad_size bad_taper bad_rotate bad_material bad_color bad_region bad_slab too_many_boxes out_of_bounds duplicate_box_id unknown_key unknown_silhouette unknown_preset`.
+
+`slab` ("x", "y" or "z") marks the box as a thin slab along that LOCAL axis and `edge_texels` (integer 1-8, default 1, only with `slab`) is how many texels the four edge faces get across the thickness: normally every face gets `size * density` texels (at least 2 per side), so a 0.02-thick plate costs two 2-texel-wide strips per edge; with `slab: "z"` the left/right/top/bottom faces become `edge_texels` wide (strips along the silhouette), the big front/back faces keep their resolution. Boxes without `slab` allocate exactly as before. `relief` slabs set it by default (`edge_texels` 1).
 
 ## Texture and appearance for custom shapes
 
@@ -154,3 +158,70 @@ Bones: `root torso chest head arm_r forearm_r hand_r arm_l forearm_l hand_l thig
 - Static pose and rigid skinning: limbs crease slightly when they bend, cloth does not move.
 - Only the EF biped rig: no quadrupeds, wings that flap, or extra limbs that animate. Anything non-humanoid in rig terms (spider, dragon, ravager) is outside this skill.
 - The held weapon sits at the stock hand position; huge `fist` values make the weapon look small.
+
+## Relief parts (boxes cut out of the reference silhouettes)
+
+`relief` is an attachment preset that turns a region of a REFERENCE view (concept art / character sheet, see `reference-fit.md` for `reference.views`, calibration and masks) into boxes. Use it for what no preset can express and that is mostly a SILHOUETTE: stair-stepped or feathered wings, hair masses, hems, ribbons, ornaments. Everything else (head, torso, limbs, armour) stays on the stock presets and `proportions`. The spec needs a top-level `reference` block with the view(s) used; `relief` without one fails with `relief_no_reference`.
+
+```json
+"reference": {"views": {"front": {"image": "refs/sheet.png", "crop": [0, 66, 462, 525], "ground_y": 516, "center_x": 224.5, "px_per_block": 203.0},
+                        "right": {"image": "refs/sheet_b.png", "crop": [456, 66, 600, 525], "ground_y": 512, "center_x": 522, "px_per_block": 203.0}}},
+"shape": {"silhouette": "caster", "remove": ["skirt"], "attachments": [
+  {"id": "wing", "preset": "relief", "mode": "extrude", "view": "front", "rect": [0, 66, 188, 400], "bone": "chest",
+   "mirror": true, "cell": 0.02, "thickness": 0.05, "z": 0.2, "max_boxes": 140, "material": "silk"},
+  {"id": "hair", "preset": "relief", "mode": "hull", "views": {"front": [185, 72, 265, 180], "right": [455, 72, 533, 180]},
+   "bone": "head", "mirror": true, "cell": 0.02, "max_boxes": 30, "material": "hair_soft"},
+  {"id": "hem", "preset": "relief", "mode": "hull", "views": {"front": [148, 345, 305, 445], "right": [470, 345, 600, 445]},
+   "bone": "thigh_r", "mirror": true, "cell": 0.02, "max_boxes": 40, "material": "silk"},
+  {"id": "rib", "preset": "relief", "mode": "extrude", "view": "front", "rect": [90, 345, 182, 495], "bone": "torso",
+   "mirror": true, "cell": 0.03, "thickness": 0.03, "z": 0.0, "max_boxes": 50, "material": "silk"}]}
+```
+
+All pixel coordinates (`rect`, `views`) are ORIGINAL image pixels (not crop-relative); the part is cut from the view's foreground mask (`reference.views.<view>.mask`), so the mask decides what is "character": draw the `rect` around the part, then look at the mask in `reference-info` and at `relief[]` of `bossforge shape` (below). The in-plane size comes only from the view's `px_per_block`, `ground_y`, `center_x` (model blocks, before the entity scale): calibrate to the BODY (feet at y = 0, the head cube 0.5 blocks) and wings, hair and hem come out at the right size relative to the body.
+
+### Parameters (attachment keys)
+
+| Key | Range / values | Default | Meaning |
+|---|---|---|---|
+| `mode` | `extrude`, `hull` | `extrude` | one view extruded into slabs / two-view visual hull |
+| `view` | `front`, `back`, `right`, `left` | `front` | extrude: the view the part is cut from |
+| `rect` | `[x0, y0, x1, y1]`, x0 < x1, y0 < y1, inside the image | required for `extrude` | extrude: pixel rectangle of the part (only the mask inside counts) |
+| `views` | `{"front"\|"back": rect, "right"\|"left": rect}`, exactly one of each pair | required for `hull` | hull: front/back rect gives the x intervals per band, right/left rect the z intervals |
+| `bone` | `root torso chest head arm_r forearm_r hand_r arm_l forearm_l hand_l thigh_r shin_r thigh_l shin_l` | `chest` | rigid binding; with `mirror` the mirrored copies use the `_r` <-> `_l` partner bone (a part on `thigh_r` becomes `thigh_r` + `thigh_l`) |
+| `cell` | 0.02 - 1.0 blocks | 0.08 | grid cell edge in the view plane; must be >= 2 reference pixels (`relief_cell_too_small`); smaller = more exact, more boxes |
+| `thickness` | 0.01 - 2.0 | 0.06 | extrude: slab depth (z extent for front/back views, x extent for right/left) |
+| `z` | -4.0 - 4.0 | 0.0 | extrude: depth CENTRE of the slab (model z for front/back, model x for right/left; the character faces -z, so z > 0 is behind the chest) |
+| `layers`, `layer_step` | 1-6, 0.0-1.0 | 1, 0.0 | extrude: `layers` copies of every slab stacked along the depth axis, `layer_step` apart (0 = `thickness`, touching) |
+| `max_boxes` | 1 - 386 | 120 | box budget of THIS attachment after mirroring and layers; `cell` grows by 5 % steps until it fits (warning `relief_coarsened` with the cell used); `relief_max_boxes` if no coarser cell reaches it without losing the shape |
+| `mirror` | bool | false | extrude (front/back views only; `relief_bad_mirror` for right/left): mesh only the character's RIGHT half (x >= 0, the image-left half of a front view) and mirror it; hull: same for x. `false` uses the whole rect (asymmetric parts) |
+| `align` | bool | true | extrude: try the grid shifted by 0, 1/4, 1/2, 3/4 of a cell in both directions and keep the shift with the highest IoU among those that fit `max_boxes` (stair-stepped art gains 2-4 IoU points at the same box count); `false` = grid lines at multiples of `cell` |
+| `edge_texels` | 0 - 8 | 1 | extrude: `slab` edge strips, see "Free-form boxes"; 0 = every face gets full texel resolution (use 0 when `thickness` is larger than `cell`: the side faces are then big) |
+| `ref_color` | bool | true | colour every box with the mean colour of the foreground pixels under it (palette/#rrggbb strings otherwise from `color`, default `primary`); `material`/`color`/`accent` as for every preset; a bake overwrites the colours anyway |
+| `rotate`, `pivot` | `[rx, ry, rz]` degrees, `[x, y, z]` | 0, bbox centre | turn the whole part about ONE pivot (every box gets the same `rotate`/`pivot`; no clipping to the model limits is done for rotated parts, the usual `out_of_bounds` check applies) |
+
+There is no `scale`: the size comes from the calibration. Ids: `<id>_s<n>` (extrude; `_r`/`_l` with `mirror`, `_c` for a single box that spans the centre line, `l<k>s<n>` with layers) and `<id>_h<n>` (hull).
+
+Codes (paths point into the attachment, e.g. `/shape/attachments/0/rect`): errors `relief_no_reference` (no `reference.views` loaded), `relief_unknown_view` (view not defined in the reference), `relief_bad_rect` (empty, outside the image, `rect` missing for extrude, no common height of the hull rects), `relief_bad_views` (hull needs exactly one of front/back and one of right/left), `relief_bad_mirror` (mirror on a right/left view), `relief_cell_too_small` (cell under 2 reference pixels), `relief_empty` (no foreground cell), `relief_max_boxes`, `relief_out_of_bounds`; parameter checks use `bad_type`, `out_of_range`, `unknown_value` like every preset; warning `relief_coarsened`.
+
+### How the boxes are made
+
+- extrude: the mask inside `rect` is sampled on a grid of `cell` blocks in the view plane (u across = x for front/back and z for right/left, v = y). A cell is foreground when at least half of it is (area-weighted, only the part inside `rect` counts); the foreground cells are merged into rectangles by greedy meshing (row-first and column-first, the smaller result wins), one slab box per rectangle with `thickness` along the view axis at `z`. The rectangles tile the foreground cells exactly (no overlap, no gap); they are clipped to `rect` (and to x >= 0 with `mirror`). A rectangle that touches the centre line becomes ONE centred box (`_c`) unless the bone is a `_r`/`_l` one or the part is rotated. Faces hidden by a neighbouring rectangle are skipped (`skip_faces`) and the thin edge faces are 1-texel strips (`slab`, `edge_texels`), so a relief box costs about `2 * w * h` texels at `texture.density` plus a few strips: the 112-box Nightingale wings plus hair, hem and ribbons (217 boxes in all) fill 26 % of a 512 atlas at density 48.
+- hull: for every horizontal band of `cell` blocks (aligned to multiples of `cell`, only where both rects overlap in height) the front mask gives the x intervals and the side mask the z intervals; every (x interval x z interval) pair is one box, bands with identical intervals are merged vertically. It is the visual hull of two silhouettes: exact in both views, but it over-fills concavities that neither view shows (a hair mass behind the face needs a side rect that starts behind the face, otherwise its front face coincides with the head box). Hull parts do not use `thickness`, `z`, `layers`, `align`.
+- Both modes check the model limits (|x| <= 4, y in [-1, 6], |z| <= 4) and raise `relief_out_of_bounds` with the offending extent instead of clipping silently (usually a wrong `px_per_block` or `rect`).
+
+### Measure it (`bossforge shape`)
+
+`bossforge shape SPEC` prints `box_counts` (boxes per owner, e.g. `{"base": 14, "wing": 112, "hair": 11, ...}`), `max_boxes`, `atlas`, `atlas_fill` and `relief`: one entry per relief attachment with `cell_requested`, `cell` (used), `phase`, `rects`, `boxes`, and the measured silhouette quality: `iou`, `ref_px`, `model_px`, `missing_px`, `extra_px` between the planar projection of the generated boxes and the reference mask inside the rect, at image resolution (hull: `iou_<view>` per view, `iou` = the lower one). `bossforge fit SPEC --views front,right` (see `reference-fit.md`) gives the same comparison for the WHOLE model with overlay PNGs. Read both after every change; the numbers, not the preview, decide whether a part is right.
+
+Measured on the staged Nightingale sheets (calibration 203 px per block, `skills/epicfight-boss-forge/assets/examples/nightingale` body, wings replaced by `relief`):
+
+| Part | Settings | Boxes | IoU in its rect |
+|---|---|---|---|
+| wings (one half, mirrored) | cell 0.03 / 0.025 / 0.02 | 72 / 88 / 112 (both wings) | 0.961 / 0.967 / 0.974 |
+| hair mass (hull, back of the head) | cell 0.02 | 11 | front 0.949, side 0.928 |
+| skirt hem region (hull) | cell 0.02 | 28 | front 0.913, side 0.936 |
+| hem ribbons (extrude) | cell 0.03 | 26 | 0.843 |
+| whole model, front view (`bossforge fit`) | stock `seraph` wings + presets -> the four relief parts | 235 -> 217 | 0.568 -> 0.919 |
+| whole model, right view | same | | 0.458 -> 0.734 |
+
+What is NOT exact: the wing silhouette is a stair-stepped approximation (IoU 0.974 at 112 boxes; the pixel-exact outline of one wing is about 390 row-run rectangles, more than the whole budget), `mirror` copies the right half although the art's two wings differ by about 0.04 blocks (use two non-mirrored attachments for an asymmetric part, twice the boxes), a slab is flat (the depth profile of a wing is invented: only `z` and `thickness`), the mask of the view decides the foreground (arms, hair or hands that overlap the rect are extruded too: draw the rect around the part), and the side view of the Nightingale sheet shows no wings at all, so the whole-model right-view IoU cannot reach 1 with wings in place.

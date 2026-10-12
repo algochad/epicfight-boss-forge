@@ -222,7 +222,10 @@ def _preset(name: str, description: str, params: Dict[str, dict], main: Tuple[st
 class _Ctx:
     """Everything a preset function needs: body, scale, resolved parameters and the box builders."""
 
-    def __init__(self, name: str, att: dict, body: Body):
+    def __init__(self, name: str, att: dict, body: Body, views: Optional[dict] = None, notes: Optional[dict] = None):
+        self.att_id = att.get("id", name)
+        self.views = views  # reference views {name: View} (only the `relief` preset reads them)
+        self.notes = notes  # optional out-channel {"warnings": [Err], "relief": [dict]}
         self.name = name
         self.b = body
         schema = PRESETS[name]["params"]
@@ -1616,6 +1619,45 @@ def _pouch(c: _Ctx) -> List[dict]:
                          pivot=(vx - math.sin(math.radians(tilt)) * (vh + 0.011 * s), top + 0.005 + (vh + 0.011 * s) * math.cos(math.radians(tilt)), vz)))
     return out
 
+# --------------------------------------------------------------------------- relief (boxes from reference silhouettes)
+RELIEF_BONES = tuple(_spec.data("rigs")["biped"]["bones"])
+RELIEF_VIEWS = ("front", "back", "right", "left")
+
+
+@_preset("relief", "Boxes cut out of the reference silhouettes (needs the spec's `reference` block): `extrude` = one view + pixel "
+         "`rect` meshed into slab boxes (greedy rectangles on a grid of `cell` blocks, `thickness` deep at depth `z`, `mirror` meshes the "
+         "character's right half and mirrors it, `layers` stacks slabs `layer_step` apart); `hull` = `views` {front|back: rect, right|left: rect}, "
+         "the product of the front x intervals and the side z intervals per band of `cell` blocks. `max_boxes` coarsens `cell` until it fits "
+         "(warning relief_coarsened). `align` shifts the extrude grid by fractions of a cell to the best-fitting phase. Boxes follow `bone`; "
+         "`rotate`/`pivot` turn the whole part. Slabs carry `edge_texels` thin edge faces and "
+         "skip faces hidden by neighbouring boxes. `ref_color` colours each box with its reference average. No `scale`: size comes from the art.",
+         {"mode": _enum("extrude", ("extrude", "hull")),
+          "view": _enum("front", RELIEF_VIEWS),
+          "rect": {"type": "rect", "default": None,
+                   "doc": "extrude: [x0, y0, x1, y1] pixel rectangle (ORIGINAL image pixels) of the part in the view; required"},
+          "views": {"type": "views", "default": None,
+                    "doc": "hull: {\"front\"|\"back\": rect, \"right\"|\"left\": rect}, exactly one of each pair; required"},
+          "bone": _enum("chest", RELIEF_BONES),
+          "cell": _float(0.08, 0.02, 1.0),
+          "thickness": _float(0.06, 0.01, 2.0),
+          "z": _float(0.0, -4.0, 4.0),
+          "layers": _int(1, 1, 6),
+          "layer_step": _float(0.0, 0.0, 1.0),
+          "max_boxes": _int(120, 1, 386),
+          "mirror": _bool(False),
+          "align": _bool(True),
+          "edge_texels": _int(1, 0, 8),
+          "ref_color": _bool(True),
+          "rotate": {"type": "vec3", "default": [0.0, 0.0, 0.0], "doc": "[rx, ry, rz] degrees for the whole part (about `pivot`)"},
+          "pivot": {"type": "vec3", "default": None, "doc": "[x, y, z] model coordinates; default: centre of the part's bounding box"}},
+         main=("cloth", "primary", "accent"))
+def _relief(c: _Ctx) -> List[dict]:
+    from . import relief
+    return relief.build(c.p, c.views, c.style("main"), c.att_id, c.notes)
+
+
+del PRESETS["relief"]["params"]["scale"]  # the size comes from the reference calibration, not from a multiplier
+
 
 # --------------------------------------------------------------------------- public API
 def list_presets() -> List[str]:
@@ -1628,6 +1670,35 @@ def _is_num(v) -> bool:
 
 def _color_ok(v) -> bool:
     return isinstance(v, str) and (is_hex(v) or v in _spec.PALETTE_KEYS)
+
+
+def _rect_errors(path: str, key: str, val: Any) -> List[Any]:
+    Err = _spec.Err
+    if not isinstance(val, (list, tuple)) or len(val) != 4 or not all(_is_num(c) for c in val):
+        return [Err(path, "bad_type", "%s must be [x0, y0, x1, y1] image pixels, got %r" % (key, val))]
+    if not (val[0] < val[2] and val[1] < val[3]):
+        return [Err(path, "out_of_range", "%s %r must have x0 < x1 and y0 < y1" % (key, list(val)))]
+    return []
+
+
+def _validate_relief_value(path: str, key: str, typ: str, val: Any) -> List[Any]:
+    """Value checks of the structured relief parameters: rect [x0,y0,x1,y1], views {view: rect}, vec3 [a,b,c]."""
+    Err = _spec.Err
+    if typ == "rect":
+        return _rect_errors(path, key, val)
+    if typ == "vec3":
+        if not isinstance(val, (list, tuple)) or len(val) != 3 or not all(_is_num(c) for c in val):
+            return [Err(path, "bad_type", "%s must be [x, y, z] numbers, got %r" % (key, val))]
+        return []
+    if not isinstance(val, dict):
+        return [Err(path, "bad_type", "%s must be an object {view: [x0, y0, x1, y1]}" % key)]
+    errs: List[Any] = []
+    for name, rect in val.items():
+        if name not in RELIEF_VIEWS:
+            errs.append(Err("%s/%s" % (path, name), "unknown_value", "view %r is not allowed; allowed: %s" % (name, ", ".join(RELIEF_VIEWS))))
+        else:
+            errs.extend(_rect_errors("%s/%s" % (path, name), "%s.%s" % (key, name), rect))
+    return errs
 
 
 def validate_attachment(att: Any) -> List[Any]:
@@ -1682,6 +1753,10 @@ def validate_attachment(att: Any) -> List[Any]:
         elif typ == "bool":
             if not isinstance(val, bool):
                 errs.append(Err(path, "bad_type", "%s must be true or false" % key))
+        elif typ in ("rect", "views", "vec3"):
+            if val is None:
+                continue
+            errs.extend(_validate_relief_value(path, key, typ, val))
         else:  # float / int
             ok = _is_num(val) if typ == "float" else (isinstance(val, int) and not isinstance(val, bool))
             if not ok:
@@ -1691,17 +1766,19 @@ def validate_attachment(att: Any) -> List[Any]:
     return errs
 
 
-def expand(att: dict, proportions: Optional[dict] = None, anatomy: Optional[dict] = None) -> List[dict]:
+def expand(att: dict, proportions: Optional[dict] = None, anatomy: Optional[dict] = None,
+           views: Optional[dict] = None, notes: Optional[dict] = None) -> List[dict]:
     """Final box dicts of one attachment on the body with the given proportions (ids prefixed by the attachment id).
 
     Raises BossForgeError for an invalid attachment. `anatomy` (rigs.json) is accepted for the shape API; the
-    positions come from the proportioned base boxes."""
+    positions come from the proportioned base boxes. `views` ({name: reference.View}) feed the `relief` preset;
+    `notes` ({"warnings": [], "relief": []}) collects what a preset wants to report."""
     errs = validate_attachment(att)
     if errs:
         raise _spec.BossForgeError(errs[0].path, errs[0].code, errs[0].message)
     name = att["preset"]
     prefix = att.get("id", name)
-    boxes = _FUNCS[name](_Ctx(name, att, body_from(proportions)))
+    boxes = _FUNCS[name](_Ctx(name, att, body_from(proportions), views, notes))
     out: List[dict] = []
     seen = set()
     for bx in boxes:

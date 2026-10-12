@@ -841,11 +841,11 @@ class ValidationTests(StubPresets):
         self.assertIn(("/parts/0/id", "duplicate_box_id"), codes(errs))
 
     def test_too_many_boxes(self):
-        parts = [box(id="p_%d" % i, min=[-0.5 + 0.02 * (i % 40), 0.5 + 0.05 * (i // 40), 0.0], size=[0.1, 0.1, 0.1]) for i in range(230)]
+        parts = [box(id="p_%d" % i, min=[-0.5 + 0.02 * (i % 40), 0.5 + 0.05 * (i // 40), 0.0], size=[0.1, 0.1, 0.1]) for i in range(390)]
         errs = shape.validate_shape({"parts": parts})
         self.assertIn(("", "too_many_boxes"), codes(errs))
-        self.assertEqual(shape.validate_shape({"parts": parts[:226]}), [])  # 14 base + 226 = 240
-        self.assertEqual(shape.MAX_BOXES, 240)
+        self.assertEqual(shape.validate_shape({"parts": parts[:386]}), [])  # 14 base + 386 = 400
+        self.assertEqual(shape.MAX_BOXES, 400)
 
     def test_out_of_bounds_uses_the_rotated_vertices(self):
         self.assertIn(("/parts/0", "out_of_bounds"), self.part_errors(min=[4.5, 1, 0]))
@@ -908,6 +908,8 @@ class RealPresetsTests(unittest.TestCase):
 
     def test_every_preset_with_defaults_expands_cleanly(self):
         for name in REAL_PRESETS.list_presets():
+            if name in shape.REFERENCE_PRESETS:  # needs the spec's reference views: tests/test_relief.py
+                continue
             sh = {"attachments": [{"id": "att", "preset": name}]}
             self.assertEqual(shape.validate_shape(sh), [], name)
             m = shape.build_model(spec_of(sh))

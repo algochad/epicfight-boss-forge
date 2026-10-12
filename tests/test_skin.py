@@ -601,7 +601,7 @@ class CustomShapeTests(unittest.TestCase):
             self.assertTrue(all(c.get(i, j)[3] == 255 for i, j in face_pixels(self.b, bid, face)))
 
     def test_oversized_atlas_is_an_error(self):
-        tpl = dict(self.tpl, authored_uv=[1024, 1024])
+        tpl = dict(self.tpl, authored_uv=[2048, 2048])
         with self.assertRaises(spec.BossForgeError) as cm:
             skin.paint(self.mesh, tpl, custom_appearance(), 1)
         self.assertEqual(cm.exception.err.code, "texture_too_large")

@@ -145,3 +145,78 @@ Example (the Nightingale robe: glowing latin cross with collar wings, cream bodi
 ## Reading the preview
 
 Panels left to right: front, three-quarter, back, texture sheet (custom shapes: front, three-quarter, side, back, texture). Check: face (eyes, brow, scar, beard) on the FRONT panel; crown/hair at the top; torso emblem on the chest; plate overlay on torso, arms, legs; no large flat or empty areas; glow colors readable; ornaments crisp (strokes one cell wide, symmetric about the centre, no muddy noise) and not cut by a box seam. The preview shows the whole boss at one scale, so a boss with big wings is small in it: read `<id>_closeup.png` for the face, chest and skirt. Describe what you see to the user. Change `palette`, `regions`, `overlay`, `features`, `seed`, `texture.scale`; do not edit the PNG.
+
+## Reference baking
+
+`reference.bake` makes the painter copy the REAL pixels of calibrated reference views (concept art, character sheets: `reference.views`, see `reference-fit.md`) into the atlas instead of inventing the surface. It is texel driven: every atlas texel knows its 3D position, normal and orientation, is projected into each bake view, and gets the colour of the reference pixels under it. Procedural materials and features stay as the fallback for everything no view can see. Without a `reference.bake` block the painter is unchanged.
+
+```json
+"reference": {
+  "views": {"front": {"image": "refs/sheet.png", "crop": [0, 66, 462, 525], "ground_y": 516, "center_x": 224.5, "px_per_block": 203},
+            "back":  {"image": "refs/sheet.png", "crop": [462, 66, 748, 525], "ground_y": 515, "center_x": 686, "px_per_block": 203}},
+  "bake": {"views": ["front", "back"], "min_facing": 0.5, "depth_tolerance": 0.06, "smear": true,
+           "palette": 0, "regions": ["*"], "exclude": ["box:wings_*"], "order": "last", "blend": 1.0, "footprint": 1.0}
+}
+```
+
+| Key | Values (default) | Meaning |
+|---|---|---|
+| `views` | list of `front` `back` `right` `left`, each defined in `reference.views` (all defined views, in that order) | views to bake from; the ORDER breaks ties between equally facing views |
+| `min_facing` | 0.1-1.0 (0.5) | a view may colour a texel only when `dot(normal, toward_camera) >= min_facing` (0.5 = faces up to 60 degrees off the camera) |
+| `depth_tolerance` | 0-0.5 blocks (0.06) | how far behind the model's own depth buffer a texel may lie and still count as visible (thin overlay boxes, coplanar neighbours) |
+| `smear` | true/false (true) | texels no view samples directly: grazing sampling (facing 0.2 up to `min_facing`) and the surface fill below. `false` leaves them procedural |
+| `palette` | 0 (off) or 8-64 | median-cut quantisation of ALL baked colours to that many colours (deterministic; a sixth of the entries are outlier slots, so a small glowing emblem or an eye keeps its own colour): crisp pixel-art look, removes noise. Too few colours flatten faces: use 48-64 for a full character |
+| `regions` | `["*"]` or body regions (`head torso arms legs hands feet arm_l ...`), `box:<glob>`, `part:<glob>` | what may be baked; the same targeting as feature `regions` |
+| `exclude` | same syntax ([]) | removed from `regions`; use it for parts whose geometry does not match yet (wings before `relief`), glowing features you want to keep procedural |
+| `order` | `last` or `first` (last) | `last`: the bake overwrites the procedural result, features only decide texels the bake cannot reach; `first`: the bake is the base layer and features (eyes, emblems, filigree) draw over it |
+| `blend` | 0-1 (1.0) | share of the baked colour mixed over the procedural one |
+| `footprint` | 0.25-1.0 (1.0) | size of the sampled part of each texel's footprint. 1.0 = true box filter of the whole texel (lowest colour error, softest); 0.5-0.6 samples the centre of the texel only (crisper pixel-art edges, a little noisier). Never below one reference pixel |
+
+All values are validated by `validate` / `skin` (`unknown_key`, `bad_type`, `out_of_range`, `unknown_value`, `unknown_region`, `reference_unknown_view`, `duplicate_view`, `required` under `/reference/bake`).
+
+### What happens to a texel
+
+1. **Facing.** Views whose facing is below `min_facing` are skipped. The remaining views are tried best facing first (ties inside 0.01 go to the order of `bake.views`). All texels of one face therefore take the same view; a face is mixed from two views only where its best view cannot see some texels.
+2. **Occlusion.** The model is rendered into a depth buffer per view at the reference resolution. The texel (centre and four corners of its footprint) must not lie more than `depth_tolerance` blocks (plus the slope of its own plane over half a pixel) behind it, so a wing behind an arm never gets the arm's pixels, hair in front of wings stays hair.
+3. **Footprint.** The texel's own square, projected through the face (rotated boxes give a rotated parallelogram, sampled with sub-boxes), is averaged over the FOREGROUND pixels of the view only (exact area-weighted box filter from summed-area tables; the sheet background, brick wall and so on is never averaged in). At least half of the footprint must be foreground: a direct sample.
+4. **Silhouette edge.** A footprint mostly on background takes the colour of the nearest interior foreground pixel within a few footprints (`edge`), so no background colour or half-blended edge pixel leaks into the model's outline. Further away than that the texel is `mask_miss`: the model sticks out of the reference there.
+5. **Smear** (only with `smear: true`). Visible texels at grazing facing are sampled the same way (`smeared`). Everything still unbaked is filled from baked texels of the SAME box along the surface, across box edges, within 0.3 block: a face half hidden behind an arm takes its visible neighbours, a side or top face takes the blend of the two baked faces it joins (weights 1/hops^2 of the nearest two source faces; the strength fades out over the second half of the reach so there is no hard seam). `filled` texels never copy an occluder's pixels.
+6. `palette`, `blend`, then the usual dilation into the atlas gutters.
+
+Not baked at all (stay procedural): texels outside `regions`, texels the fill cannot reach, and `procedural` texels of boxes no view sees. Side faces of boxes are only baked directly when a `right` / `left` view is baked.
+
+### What `skin` prints
+
+`bossforge skin SPEC --out DIR` adds a `bake` object to its JSON (numbers: the fitted Nightingale, 3 views):
+
+```json
+"bake": {"views": {"front": {"facing": 12528, "direct": 9079, "edge": 406, "smeared": 0, "occluded": 2976, "mask_miss": 67, "left_procedural": 3043},
+                   "back": {...}, "right": {...}},
+         "total": {"texels": 67534, "direct": 17553, "edge": 1580, "smeared": 44, "filled": 42078, "procedural": 6279, "visible": 22812, "mask_miss": 3679, "occluded": 9925, "unseen": 34753},
+         "direct_ratio": 0.7695,
+         "seams": {"same_view_pairs": 0, "same_view_mean_delta": null, "cross_view_pairs": 1831, "cross_view_mean_delta": 58.79},
+         "compare": {"front": {"compared_px": 106317, "baked_px": 103989, "unbaked_px": 2328, "mean_abs_error": 12.18, "within_24_share": 0.8168,
+                               "texel_block_px": 4, "texel_block_mean_abs_error": 5.68, "reference_only_px": 4013, "model_only_px": 5409,
+                               "image": "DIR/bossforge/previews/<id>_bake_front.png"}, "back": {...}, "right": {...}}}
+```
+
+- per view: `facing` texels facing the view, of them `direct` samples, `edge` (nearest interior colour), `smeared` (grazing), `occluded` (hidden by the model itself), `mask_miss` (visible, but the reference is background there), `left_procedural` (facing it but not painted from it).
+- `total`: `texels` targeted, `direct` / `edge` / `smeared` baked from the reference, `filled` from neighbours, `procedural` untouched; `visible` = `direct + edge + mask_miss` (texels a view sees); `occluded` / `unseen` (no view faces them) are never visible. `direct_ratio` = `direct / visible`.
+- Warning `bake_low_coverage` (path `/reference/bake`) when `direct_ratio` < 0.6: most of what the views see lands on reference background, so the calibration (`px_per_block`, `center_x`, `ground_y`) or the geometry does not match the reference (a part of the model outside the reference crop or mask counts as well: the back view of the Nightingale sheet misses its right wing under the weapon sheet). Run `bossforge fit` (`reference-fit.md`) and fix that FIRST: baking a mis-registered model copies the wrong pixels (a cross ends up on the head). `bake_view_unused` (a view sampled nothing), `bake_nothing_visible` (no texel faces any bake view: wrong `views`, `regions` or `min_facing`).
+- `seams`: mean colour difference (0-255 per channel) across box edges between baked texels, split by whether both sides came from the same view or from different views. The cross-view number is what baking from two images adds at an edge (the views disagree about brightness, outline or registration); as a rule of thumb 0-25 is a clean seam, around 60 (the Nightingale example) means visible hard edges at box corners that the reference itself does not have: fix the registration of the views, or bake that part from one view only (`regions` / `exclude`).
+- `compare`: for every view a PNG `[reference | the model rendered through that view with the FINAL texture | difference]` (difference: grey = colour error x3, blue = reference only, red = model only) and numbers over the pixels where the reference is foreground and the model shows a directly baked texel of a face looking at the view: `mean_abs_error` (0-255 per channel, pixel by pixel), `within_24_share` (pixels with every channel within 24), `texel_block_mean_abs_error` (the same after averaging both images over texel-sized blocks of `texel_block_px` pixels: detail finer than one texel cannot be copied, this is the number that says whether the COLOURS are right), `unbaked_px` (overlap pixels showing procedural / filled texels), `reference_only_px` / `model_only_px` (silhouette mismatch: geometry work, not a bake problem).
+
+### Workflow and tuning
+
+1. Calibrate the views and fit the geometry first (`reference-fit.md`): a good `fit` IoU is the precondition of a good bake.
+2. Add `"bake": {"views": ["front", "back"]}`, run `skin`, read `direct_ratio` and open the `_bake_<view>.png` images. Colour error is concentrated at box edges where the model is a few pixels off the art.
+3. `exclude` parts that do not match yet (`box:wings_*`) so their wrong pixels do not land on the wrong boxes, or bake them from a view that matches (`relief` parts are generated from the reference silhouette and bake at a `direct_ratio` near 1 for the view they were built from).
+4. Pixel-art look: `palette` 48-64, `footprint` 0.5-0.6. Keep procedural detail where it should win: `order: "first"`, or `exclude` the face and let `eyes` / `mouth` features draw it.
+5. Add a `right` view (a side sheet) to bake the side faces directly instead of filling them. A character without a left view: save a mirrored copy of the side image (`magick side.png -flop side_left.png`) and define `left` on it with `center_x` = image width - the right view's `center_x` and the mirrored `crop`; a symmetric character then gets both sides from real pixels.
+
+### Measured, and what is not exact
+
+- Self-consistency (the Nightingale model rendered through its own front and back view at 203 px per block, then baked back): every visible texel is a direct sample (`direct_ratio` 1.0) and the model re-rendered with the baked texture differs from that reference by 2.2 / 2.3 per channel on average (98 % of the pixels within 24), 1.5 / 1.6 after texel-block averaging (2.5 pixel by pixel at 144 px per block). That is the resampling floor of the box filter on an unaligned grid, not a bake error.
+- The Nightingale sheets (`sheet_ortho_front_back.png` front + back, `sheet_front_side_back.png` right) on the relief-fitted model (217 boxes, atlas 512, density 48; 24 s for `skin` with bake and review images): `direct_ratio` 0.77 (front 0.95, back 0.59 because its crop cuts the right wing, right 0.88), colour error against the real art 12.2 / 11.2 / 17.3 per channel pixel by pixel, 5.7 / 5.3 / 4.5 after texel-block averaging, 82 / 84 / 72 % of the pixels within 24. Face, robe filigree, cuffs, hem, the glowing cross and the white-to-lavender wing gradient reproduce at texel resolution; what remains is a softer version of the art.
+- Not exact: a texel is 1/`shape.texture.density` block (48 -> about 4 reference pixels at 203 px per block), so outlines 1-2 px wide, eye highlights and JPEG noise are averaged or lost, and the art's own pixel grid is not aligned with the texel grid (edges blend between neighbouring texels; `footprint` < 1 trades that for aliasing). The model is boxes: where an arm or a hair mass is a few pixels off the art, the neighbouring pixels (wing, wall edge) land on its edge texels (the grey ghosting at the sleeves). The reference carries its own lighting and shadows, they are baked in, and no tone matching is done between views (see `seams`). Surfaces no view sees (backs of wings, hidden sides, the inside of the skirt, the left side without a left view) are filled from neighbours or procedural, never real art. Boxes that overlap in the image share pixels: the nearest box gets them, boxes within `depth_tolerance` behind it get the same colours.
+- Cost: pure Python, about 4 s for 67 000 texels and three 1024-pixel views on top of the 6 s the plain painter needs, plus 3 s for the review images.

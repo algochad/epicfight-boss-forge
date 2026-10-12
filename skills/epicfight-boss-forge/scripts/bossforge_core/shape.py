@@ -18,7 +18,7 @@ import copy
 import importlib
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from . import efmesh, efmodel
@@ -30,7 +30,7 @@ Vec = Tuple[float, float, float]
 REGIONS = ("head", "torso", "arm_l", "arm_r", "leg_l", "leg_r")
 FACES = ("front", "back", "left", "right", "top", "bottom")
 LAYERS = ("base", "overlay")
-MAX_BOXES = 240
+MAX_BOXES = 400
 LIMIT_X = 4.0
 LIMIT_Y = (-1.0, 6.0)
 LIMIT_Z = 4.0
@@ -39,13 +39,17 @@ DENSITY_RANGE = (8.0, 64.0)
 BOX_DENSITY_RANGE = (0.25, 4.0)
 TAPER_RANGE = (0.05, 3.0)
 MIN_SIZE = 0.01
-MAX_ATLAS = 512
+MAX_ATLAS = 512  # default atlas limit; `texture.atlas` may raise it to a value of ATLAS_SIZES
+ATLAS_SIZES = (512, 1024)
 GUTTER = 1
 MIN_FACE_TEXELS = 2
+SLAB_AXES = ("x", "y", "z")
+EDGE_TEXELS_RANGE = (1, 8)
+REFERENCE_PRESETS = ("relief",)  # attachment presets that need the spec's `reference` views
 BOX_ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 SHAPE_KEYS = ("rig", "silhouette", "proportions", "attachments", "remove", "parts", "texture")
 BOX_KEYS = ("id", "bone", "min", "size", "taper", "rotate", "pivot", "mirror", "material", "color", "accent",
-            "region", "layer", "skip_faces", "density")
+            "region", "layer", "skip_faces", "density", "slab", "edge_texels")
 
 PROPORTION_RANGES: Dict[str, Tuple[float, float]] = {
     "head": (0.6, 2.2), "shoulders": (0.7, 2.0), "torso_width": (0.6, 2.0), "torso_depth": (0.6, 2.0),
@@ -89,6 +93,9 @@ _FACE_CORNERS = {
     "top": ((0, 1, 1), (1, 1, 1), (1, 1, 0), (0, 1, 0)),
     "bottom": ((0, 0, 0), (1, 0, 0), (1, 0, 1), (0, 0, 1)),
 }
+# the two box axes a face spans (u = BL -> BR, v = BL -> TL); `slab` boxes shrink faces along their thin axis
+_FACE_AXES = {"front": ("x", "y"), "back": ("x", "y"), "left": ("z", "y"), "right": ("z", "y"),
+              "top": ("x", "z"), "bottom": ("x", "z")}
 
 
 # --------------------------------------------------------------------------- proportions / base body
@@ -306,6 +313,15 @@ def _norm_box(raw, base: str, errs: List[Err], default_layer: str, strict: bool,
     density = raw.get("density", 1.0)
     if not _is_num(density) or density < BOX_DENSITY_RANGE[0] or density > BOX_DENSITY_RANGE[1]:
         bad("density", "out_of_range", "density %r is outside %s..%s" % (density, BOX_DENSITY_RANGE[0], BOX_DENSITY_RANGE[1]))
+    slab = raw.get("slab")
+    if slab is not None and slab not in SLAB_AXES:
+        bad("slab", "bad_slab", "slab %r must be one of %s (the thin axis of the box)" % (slab, ", ".join(SLAB_AXES)))
+    edge = raw.get("edge_texels")
+    if edge is not None and (not isinstance(edge, int) or isinstance(edge, bool)
+                             or edge < EDGE_TEXELS_RANGE[0] or edge > EDGE_TEXELS_RANGE[1]):
+        bad("edge_texels", "out_of_range", "edge_texels %r must be an integer within %d..%d" % (edge, EDGE_TEXELS_RANGE[0], EDGE_TEXELS_RANGE[1]))
+    elif edge is not None and slab is None:
+        bad("edge_texels", "bad_slab", "edge_texels needs slab (the thin axis x, y or z)")
     mirror = raw.get("mirror", False)
     if not isinstance(mirror, bool):
         bad("mirror", "bad_type", "mirror must be true or false")
@@ -320,6 +336,9 @@ def _norm_box(raw, base: str, errs: List[Err], default_layer: str, strict: bool,
         "material": material, "color": raw.get("color"), "accent": raw.get("accent"), "region": region,
         "layer": layer, "skip_faces": list(dict.fromkeys(skip)), "density": float(density),
     }
+    if slab is not None:
+        box["slab"] = slab
+        box["edge_texels"] = int(edge) if edge is not None else 1
     return box, mirror
 
 
@@ -358,8 +377,11 @@ def _box_out_of_bounds(box: dict) -> Optional[Vec]:
     return None
 
 
-def _resolve(shape) -> Tuple[List[dict], List[str], Dict[str, float], List[Err]]:
-    """(explicit boxes, per-box origin pointers, effective proportions, all errors)."""
+def _resolve(shape, views: Optional[dict] = None, notes: Optional[dict] = None,
+             owners: Optional[List[str]] = None) -> Tuple[List[dict], List[str], Dict[str, float], List[Err]]:
+    """(explicit boxes, per-box origin pointers, effective proportions, all errors). `views` are the reference views
+    for `relief` attachments; `notes` collects {"warnings": [Err], "relief": [dict]}; `owners` receives the owner of
+    every box ("base", the attachment id or "parts")."""
     errs: List[Err] = []
     boxes: List[dict] = []
     origins: List[str] = []
@@ -378,13 +400,18 @@ def _resolve(shape) -> Tuple[List[dict], List[str], Dict[str, float], List[Err]]
             errs.append(Err("/texture", "bad_type", "texture must be an object"))
         else:
             for k in tex:
-                if k != "density":
-                    errs.append(Err("/texture/" + str(k), "unknown_key", "unknown texture key %r; allowed: density" % (k,)))
+                if k not in ("density", "atlas"):
+                    errs.append(Err("/texture/" + str(k), "unknown_key", "unknown texture key %r; allowed: density, atlas" % (k,)))
             d = tex.get("density", DEFAULT_DENSITY)
             if not _is_num(d):
                 errs.append(Err("/texture/density", "bad_type", "density must be a number, got %r" % (d,)))
             elif d < DENSITY_RANGE[0] or d > DENSITY_RANGE[1]:
                 errs.append(Err("/texture/density", "out_of_range", "%r is outside the allowed range %s..%s texels per block" % (d, DENSITY_RANGE[0], DENSITY_RANGE[1])))
+            atlas = tex.get("atlas", MAX_ATLAS)
+            if not _is_num(atlas):
+                errs.append(Err("/texture/atlas", "bad_type", "atlas must be 512 or 1024, got %r" % (atlas,)))
+            elif atlas not in ATLAS_SIZES:
+                errs.append(Err("/texture/atlas", "out_of_range", "atlas %r must be one of %s texels" % (atlas, ", ".join(str(a) for a in ATLAS_SIZES))))
 
     # silhouette
     sil = None  # type: Optional[dict]
@@ -460,19 +487,28 @@ def _resolve(shape) -> Tuple[List[dict], List[str], Dict[str, float], List[Err]]
 
     # boxes: base body, attachments, free parts
     raw_boxes: List[Tuple[dict, str]] = [(b, "/proportions") for b in base_boxes(props)]
+    raw_owner: List[str] = ["base"] * len(raw_boxes)
     anatomy = copy.deepcopy(ANATOMY)
     for att, origin in slots:
+        extra = {"views": views, "notes": notes} if att.get("preset") in REFERENCE_PRESETS else {}
+        warned = len(notes.get("warnings", ())) if notes is not None else 0
         try:
-            produced = _presets().expand(copy.deepcopy(att), dict(props), copy.deepcopy(anatomy))
+            produced = _presets().expand(copy.deepcopy(att), dict(props), copy.deepcopy(anatomy), **extra)
         except BossForgeError as e:
             errs.append(Err(origin + e.err.path, e.err.code, e.err.message))
             continue
+        if notes is not None:  # warnings of a preset point at the attachment
+            lst = notes.get("warnings", [])
+            for wi in range(warned, len(lst)):
+                lst[wi] = Err(origin + lst[wi].path, lst[wi].code, lst[wi].message)
         for rb in produced:
             nb = _norm_box(rb, origin, errs, "overlay", False, False)
             if nb is not None:
                 raw_boxes.append((nb[0], origin))
+                raw_owner.append(str(att.get("id", att.get("preset"))))
                 if nb[1]:
                     raw_boxes.append((mirror_box(nb[0]), origin))
+                    raw_owner.append(str(att.get("id", att.get("preset"))))
     parts = shape.get("parts", [])
     if not isinstance(parts, list):
         errs.append(Err("/parts", "bad_type", "parts must be a list of boxes"))
@@ -481,17 +517,21 @@ def _resolve(shape) -> Tuple[List[dict], List[str], Dict[str, float], List[Err]]
         nb = _norm_box(rb, "/parts/%d" % i, errs, "overlay", True, True)
         if nb is not None:
             raw_boxes.append((nb[0], "/parts/%d" % i))
+            raw_owner.append("parts")
             if nb[1]:
                 raw_boxes.append((mirror_box(nb[0]), "/parts/%d" % i))
+                raw_owner.append("parts")
 
     ids = set()
-    for b, origin in raw_boxes:
+    for (b, origin), owner in zip(raw_boxes, raw_owner):
         if b["id"] in ids:
             errs.append(Err(origin + ("/id" if origin.startswith("/parts/") else ""), "duplicate_box_id", "box id %r is used more than once" % (b["id"],)))
             continue
         ids.add(b["id"])
         boxes.append(b)
         origins.append(origin)
+        if owners is not None:
+            owners.append(owner)
     if len(boxes) > MAX_BOXES:
         errs.append(Err("", "too_many_boxes", "%d boxes after expansion; the limit is %d" % (len(boxes), MAX_BOXES)))
     for b, origin in zip(boxes, origins):
@@ -512,20 +552,44 @@ def _dedupe(errs: List[Err]) -> List[Err]:
     return out
 
 
-def validate_shape(shape: dict) -> List[Err]:
-    """All problems of a `shape` spec; paths are relative to the shape (e.g. /parts/0/size)."""
-    return _dedupe(_resolve(shape)[3])
+def _load_views(spec: Optional[dict], shape: Any) -> dict:
+    """The reference views of `spec` when `shape` has a reference-driven attachment (relief), else {}.
+    Raises BossForgeError (reference_*) when the images cannot be loaded."""
+    atts = shape.get("attachments") if isinstance(shape, dict) else None
+    if not isinstance(spec, dict) or not isinstance(atts, list):
+        return {}
+    if not any(isinstance(a, dict) and a.get("preset") in REFERENCE_PRESETS for a in atts):
+        return {}
+    from . import reference
+    return reference.views_for(spec)
 
 
-def resolve(shape: dict) -> Tuple[List[dict], dict]:
-    """(explicit boxes with unique ids, effective proportions). Raises BossForgeError (first problem; all of
-    them are on `.errors`)."""
-    boxes, _origins, props, errs = _resolve(shape)
+def validate_shape(shape: dict, spec: Optional[dict] = None) -> List[Err]:
+    """All problems of a `shape` spec; paths are relative to the shape (e.g. /parts/0/size). `spec` (the whole
+    boss spec, raw or normalized) supplies the `reference` views for `relief` attachments."""
+    try:
+        views = _load_views(spec, shape)
+    except BossForgeError as e:
+        return [Err("", e.err.code, e.err.message)]
+    return _dedupe(_resolve(shape, views)[3])
+
+
+def _resolve_checked(shape: dict, views: Optional[dict], notes: Optional[dict]) -> Tuple[List[dict], dict, List[str]]:
+    owners: List[str] = []
+    boxes, _origins, props, errs = _resolve(shape, views, notes, owners)
     errs = _dedupe(errs)
     if errs:
         exc = BossForgeError(errs[0].path, errs[0].code, errs[0].message)
         exc.errors = errs  # type: ignore[attr-defined]
         raise exc
+    return boxes, props, owners
+
+
+def resolve(shape: dict, views: Optional[dict] = None, notes: Optional[dict] = None) -> Tuple[List[dict], dict]:
+    """(explicit boxes with unique ids, effective proportions). Raises BossForgeError (first problem; all of
+    them are on `.errors`). `views` ({name: reference.View}) feed `relief` attachments, `notes` collects their
+    warnings and measurements ({"warnings": [Err], "relief": [dict]})."""
+    boxes, props, _owners = _resolve_checked(shape, views, notes)
     return boxes, props
 
 
@@ -549,15 +613,15 @@ def _shelf_pack(order: List[int], sizes: List[Tuple[int, int]], side: int) -> Op
     return pos
 
 
-def pack_rects(sizes: List[Tuple[int, int]]) -> Optional[Tuple[int, List[Tuple[int, int]]]]:
-    """Smallest square power-of-two atlas (<= MAX_ATLAS) holding every (w, h) rect with a 1-texel gutter;
+def pack_rects(sizes: List[Tuple[int, int]], max_atlas: int = MAX_ATLAS) -> Optional[Tuple[int, List[Tuple[int, int]]]]:
+    """Smallest square power-of-two atlas (<= max_atlas) holding every (w, h) rect with a 1-texel gutter;
     returns (side, [(x, y)]) or None. Deterministic shelf packing, tallest first."""
     order = sorted(range(len(sizes)), key=lambda i: (-sizes[i][1], -sizes[i][0], i))
     area = sum((w + GUTTER) * (h + GUTTER) for w, h in sizes)
     side = 16
-    while (side + GUTTER) * (side + GUTTER) < area and side < MAX_ATLAS:
+    while (side + GUTTER) * (side + GUTTER) < area and side < max_atlas:
         side *= 2
-    while side <= MAX_ATLAS:
+    while side <= max_atlas:
         pos = _shelf_pack(order, sizes, side)
         if pos is not None:
             return side, pos
@@ -589,6 +653,9 @@ class ShapeModel:
     height: float
     bounds: Tuple[Vec, Vec]
     warnings: List[Err]
+    box_counts: Dict[str, int] = field(default_factory=dict)  # boxes per owner: "base", attachment ids, "parts"
+    relief: List[dict] = field(default_factory=list)  # measurements of every `relief` attachment
+    atlas_fill: float = 0.0  # fraction of the atlas covered by face rects
 
 
 def build_model(n: dict, ctx=None) -> ShapeModel:
@@ -596,8 +663,12 @@ def build_model(n: dict, ctx=None) -> ShapeModel:
     shape = n.get("shape")
     if not isinstance(shape, dict):
         raise BossForgeError("/shape", "required", "the spec has no shape object")
-    boxes, props = resolve(shape)
-    density0 = float((shape.get("texture") or {}).get("density", DEFAULT_DENSITY))
+    views = _load_views(n, shape)
+    notes: Dict[str, list] = {}
+    boxes, props, owners = _resolve_checked(shape, views, notes)
+    tex = shape.get("texture") or {}
+    density0 = float(tex.get("density", DEFAULT_DENSITY))
+    max_atlas = int(tex.get("atlas", MAX_ATLAS))
 
     # geometry
     positions: List[Vec] = []
@@ -620,23 +691,33 @@ def build_model(n: dict, ctx=None) -> ShapeModel:
             faces.append((bi, face, idx, width, height))
 
     # atlas
-    warnings: List[Err] = []
+    warnings: List[Err] = list(notes.get("warnings", []))
     density = density0
     while True:
         sizes = []
-        for bi, _face, _idx, width, height in faces:
-            d = density * boxes[bi]["density"]
-            sizes.append((max(MIN_FACE_TEXELS, int(width * d + 0.5)), max(MIN_FACE_TEXELS, int(height * d + 0.5))))
-        packed = pack_rects(sizes)
+        for bi, face, _idx, width, height in faces:
+            b = boxes[bi]
+            d = density * b["density"]
+            w, h = max(MIN_FACE_TEXELS, int(width * d + 0.5)), max(MIN_FACE_TEXELS, int(height * d + 0.5))
+            if "slab" in b:  # thin slab: faces along the thin axis are edge strips of `edge_texels`
+                au, av = _FACE_AXES[face]
+                if au == b["slab"]:
+                    w = b["edge_texels"]
+                if av == b["slab"]:
+                    h = b["edge_texels"]
+            sizes.append((w, h))
+        packed = pack_rects(sizes, max_atlas)
         if packed is not None:
             break
         if density <= DENSITY_RANGE[0]:
             raise BossForgeError("/shape/texture/density", "texture_too_large",
-                                 "the %d boxes do not fit a %dx%d atlas even at %s texels per block; remove boxes or shrink them" % (len(boxes), MAX_ATLAS, MAX_ATLAS, DENSITY_RANGE[0]))
+                                 "the %d boxes do not fit a %dx%d atlas even at %s texels per block; remove boxes or shrink them%s"
+                                 % (len(boxes), max_atlas, max_atlas, DENSITY_RANGE[0], "" if max_atlas >= ATLAS_SIZES[-1] else " (or set shape.texture.atlas to 1024)"))
         density = max(DENSITY_RANGE[0], density / 2.0)
     side, rect_pos = packed
     if density != density0:
-        warnings.append(Err("/texture/density", "density_reduced", "texture density reduced from %g to %g texels per block to fit a %dx%d atlas" % (density0, density, side, side)))
+        warnings.append(Err("/texture/density", "density_reduced", "texture density reduced from %g to %g texels per block to fit a %dx%d atlas%s"
+                            % (density0, density, side, side, "" if max_atlas >= ATLAS_SIZES[-1] else " (shape.texture.atlas 1024 allows a larger atlas)")))
 
     # uvs, normals, triangles
     uvs: List[Tuple[float, float]] = []
@@ -690,8 +771,13 @@ def build_model(n: dict, ctx=None) -> ShapeModel:
     }
     mesh = efmesh.Mesh(positions, normals, uvs, tris, part_regions)
     mesh_json = efmodel.write_mesh_json(positions, normals, uvs, part_tris, joint_of_position)
+    counts: Dict[str, int] = {}
+    for owner in owners:
+        counts[owner] = counts.get(owner, 0) + 1
+    fill = sum(w * h for w, h in sizes) / float(side * side)
     return ShapeModel(boxes=boxes, proportions=props, mesh=mesh, tpl=tpl, atlas=(side, side), mesh_json=mesh_json,
-                      height=height, bounds=bounds, warnings=warnings)
+                      height=height, bounds=bounds, warnings=warnings, box_counts=counts,
+                      relief=list(notes.get("relief", [])), atlas_fill=round(fill, 4))
 
 
 def generate(n: dict, ctx) -> Tuple[List[GenFile], Dict[str, str]]:

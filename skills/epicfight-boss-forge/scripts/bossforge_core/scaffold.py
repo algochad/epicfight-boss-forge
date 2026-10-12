@@ -16,7 +16,7 @@ import subprocess
 import urllib.error
 import zipfile
 from pathlib import Path, PurePosixPath
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from . import efassets, javagen, manifest as mf
 from .spec import MOD_ID_RE, BossForgeError, Err, GenFile, data, make_context, pascal
@@ -559,6 +559,44 @@ def _summary(root, res, warnings, wiring, qa_errs) -> dict:
                    "warnings": [e.to_dict() for e in qa_errs if e.code.startswith("warn_")]}}
 
 
+def _stage_references(raw_bytes: bytes, spec_path) -> Tuple[bytes, List[GenFile]]:
+    """A spec with a `reference` block points at image files next to the spec. The project copy lives in
+    `bossforge/bosses/`, so copy every referenced image (view images and mask images) to `bossforge/refs/<sha8>_<name>`
+    and rewrite the paths in the copy to `../refs/...`; regeneration from the project then finds them."""
+    import hashlib
+    try:
+        d = json.loads(raw_bytes.decode("utf-8"))
+    except ValueError:
+        return raw_bytes, []
+    views = (d.get("reference") or {}).get("views") if isinstance(d, dict) else None
+    if not isinstance(views, dict):
+        return raw_bytes, []
+    base = Path(spec_path).resolve().parent
+    staged: Dict[str, str] = {}
+    out: List[GenFile] = []
+
+    def stage(holder: dict, key: str) -> None:
+        rel = holder.get(key)
+        if not isinstance(rel, str):
+            return
+        src = Path(rel) if Path(rel).is_absolute() else base / rel
+        if not src.is_file():
+            return
+        if rel not in staged:
+            data = src.read_bytes()
+            name = "%s_%s" % (hashlib.sha256(data).hexdigest()[:8], src.name)
+            staged[rel] = "../refs/" + name
+            out.append(GenFile("bossforge/refs/" + name, data, "reference"))
+        holder[key] = staged[rel]
+
+    for v in views.values():
+        if isinstance(v, dict):
+            stage(v, "image")
+            if isinstance(v.get("mask"), dict):
+                stage(v["mask"], "image")
+    return (json.dumps(d, indent=2, ensure_ascii=False) + "\n").encode("utf-8"), out
+
+
 def add_boss(spec_path, project_dir, cache_dir=None, offline: bool = False, force: bool = False, dry_run: bool = False,
              ef_jar: Optional[str] = None) -> dict:
     """Generate every file for one boss into a mod project (idempotent; hand-edited files are conflicts)."""
@@ -587,7 +625,9 @@ def add_boss(spec_path, project_dir, cache_dir=None, offline: bool = False, forc
         if gen is skin.generate_with_report:
             report = out[2]
     rel_spec = "bossforge/bosses/%s.boss.json" % n["id"]
-    files.append(_spec_copy(rel_spec, raw_bytes))
+    spec_bytes, ref_files = _stage_references(raw_bytes, spec_path)
+    files.extend(ref_files)
+    files.append(_spec_copy(rel_spec, spec_bytes))
     man["bosses"][n["id"]] = {"spec": rel_spec, "class": javagen.boss_class(n["id"])}
     files.append(javagen.generate_registry(root, ctx, man, bosses={n["id"]: n}))
     res = _commit(root, man, files, lang, n["mod_id"], force, dry_run)

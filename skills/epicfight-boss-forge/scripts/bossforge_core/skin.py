@@ -16,6 +16,7 @@ that single box), and `overlay_to_base` (appearance `overlay` entries are baked 
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from . import colors, efmesh, features
@@ -26,6 +27,7 @@ from .spec import BossForgeError, Err, GenFile
 from .preview import render_closeup, render_preview
 
 MAX_TEXTURE_EDGE = 512
+MAX_CUSTOM_EDGE = 1024  # custom shapes: `shape.texture.atlas` may be 1024 (relief parts need the room)
 HANDS_MAX_LY = features.HANDS_MAX_LY
 FEET_MAX_LY = features.FEET_MAX_LY
 DEFAULT_ENTRY = {"material": "cloth", "color": "primary"}
@@ -300,10 +302,12 @@ def _shade_entry(entry: dict, t: Texel, palette: dict, seed: int):
     return shade_texel(entry.get("material", "cloth"), t, c, a, seed)
 
 
-def paint(mesh, tpl: dict, ap: dict, seed: int, front_sign: Optional[int] = None, right_sign: Optional[int] = None):
+def paint(mesh, tpl: dict, ap: dict, seed: int, front_sign: Optional[int] = None, right_sign: Optional[int] = None, ref_bake=None):
     """Paint a texture for ``mesh`` / template ``tpl`` from a normalized appearance dict.
 
-    Returns ``(canvas, info)``; info = {coverage, base_texels, overlay_texels, overlay_opaque, warnings}.
+    Returns ``(canvas, info)``; info = {coverage, base_texels, overlay_texels, overlay_opaque, warnings[, bake]}.
+    ``ref_bake`` is an optional ``refbake.BakePlan``: reference pixels are baked into the texels before (`order: first`) or after
+    (`order: last`) the appearance features, and its statistics land in ``info["bake"]``.
     """
     custom = bool(tpl.get("custom"))
     aw, ah = tpl["authored_uv"]
@@ -314,9 +318,10 @@ def paint(mesh, tpl: dict, ap: dict, seed: int, front_sign: Optional[int] = None
         scale = int((ap.get("texture") or {}).get("scale", 2))
         w, h = aw * scale, ah * scale
         too_large = ("/appearance/texture/scale", "lower texture.scale")
-    if max(w, h) > MAX_TEXTURE_EDGE:
+    limit = MAX_CUSTOM_EDGE if custom else MAX_TEXTURE_EDGE
+    if max(w, h) > limit:
         raise BossForgeError(too_large[0], "texture_too_large",
-                             "texture %dx%d exceeds %d; %s" % (w, h, MAX_TEXTURE_EDGE, too_large[1]))
+                             "texture %dx%d exceeds %d; %s" % (w, h, limit, too_large[1]))
     fs, rs = efmesh.frame(mesh, tpl)
     if tpl.get("right_sign") is not None:
         rs = int(tpl["right_sign"])
@@ -375,9 +380,15 @@ def paint(mesh, tpl: dict, ap: dict, seed: int, front_sign: Optional[int] = None
                 t.rgb = _shade_entry(hit.entry, t, palette, seed)
 
     st = PaintState(texels, palette, seed, tb)
+    bake_stats = None
+    bake_args = (texels, cover, mesh, (w, h), tpl.get("uv_origin", "top"), fs, rs)
+    if ref_bake is not None and ref_bake.cfg["order"] == "first":
+        bake_stats = ref_bake.apply(*bake_args)
     for f in ap.get("features") or []:
         if isinstance(f, dict):
             features.apply_feature(st, f)
+    if ref_bake is not None and ref_bake.cfg["order"] == "last":
+        bake_stats = ref_bake.apply(*bake_args)
 
     canvas = Canvas(w, h)
     base_map = {}  # type: Dict[Tuple[int, int], Tuple[int, int, int]]
@@ -407,6 +418,8 @@ def paint(mesh, tpl: dict, ap: dict, seed: int, front_sign: Optional[int] = None
                 if c is not None:
                     canvas.set(x, y, (c[0], c[1], c[2], 255))
                     break
+    if bake_stats is not None:
+        warnings.extend(bake_stats.pop("warnings"))
     info = {
         "coverage": round(base_painted / base_total, 4) if base_total else 0.0,
         "base_texels": base_total,
@@ -414,6 +427,8 @@ def paint(mesh, tpl: dict, ap: dict, seed: int, front_sign: Optional[int] = None
         "overlay_opaque": overlay_opaque,
         "warnings": warnings,
     }
+    if bake_stats is not None:
+        info["bake"] = bake_stats
     return canvas, info
 
 
@@ -454,7 +469,11 @@ def generate_with_report(n: dict, ctx):
             raise BossForgeError("/body/template", "no_template", "no body template could be resolved from size/body/weapon")
         mesh, tpl = efmesh.load_for_template(ctx, template)
     ap = n["appearance"]
-    canvas, info = paint(mesh, tpl, ap, int(n["seed"]))
+    bake = None
+    if n.get("reference"):
+        from . import refbake  # lazy: bosses without a reference never load it
+        bake = refbake.plan_for(n)
+    canvas, info = paint(mesh, tpl, ap, int(n["seed"]), ref_bake=bake)
     preview = render_preview(mesh, tpl, canvas)
     tex_bytes = write_png(None, canvas)
     prev_bytes = write_png(None, preview)
@@ -482,6 +501,10 @@ def generate_with_report(n: dict, ctx):
         report["shape_warnings"] = shape_warnings
         if closeup_rel is not None:
             report["closeup"] = closeup_rel
+    if bake is not None:  # reference bake: statistics plus [reference | model | difference] images per baked view
+        cmp_files, cmp_metrics = bake.compare(mesh, canvas, n["id"])
+        files.extend(cmp_files)
+        report["bake"] = dict(info["bake"], compare={v: dict(m, image=str(Path(ctx.project_root) / m["image"])) for v, m in cmp_metrics.items()})
     return files, {}, report
 
 

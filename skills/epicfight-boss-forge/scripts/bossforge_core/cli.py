@@ -265,7 +265,8 @@ def cmd_shape(args) -> int:
     return _out({"ok": True, "files": [f.relpath for f in files], "boxes": len(model.boxes), "atlas": list(model.atlas),
                  "height": round(model.height, 4), "scale": n["derived"]["scale"],
                  "bounds": {"min": [round(v, 3) for v in lo], "max": [round(v, 3) for v in hi]},
-                 "proportions": model.proportions, "warnings": [w.to_dict() for w in warns]})
+                 "proportions": model.proportions, "box_counts": model.box_counts, "max_boxes": shape.MAX_BOXES,
+                 "atlas_fill": model.atlas_fill, "relief": model.relief, "warnings": [w.to_dict() for w in warns]})
 
 
 def cmd_lore(args) -> int:
@@ -312,6 +313,38 @@ def cmd_catalog(args) -> int:
     from . import catalog, efassets
     data = catalog.build(args.ef_ref, args.out, efassets.http_get)
     return _out({"ok": True, "keys": len(data["keys"]), "out": args.out, "ref": args.ef_ref})
+
+
+def cmd_fit(args) -> int:
+    from . import fit, reference, shape
+    ok, bad = _need_valid(args)
+    if bad is not None:
+        return bad
+    raw, n, warns = ok
+    if not n["derived"].get("custom"):
+        return _fail([Err("/shape", "no_shape", "this spec has no `shape` block (it uses the stock EF mesh); there is nothing to fit")])
+    views = reference.views_for(n)
+    if not views:
+        return _fail([Err("/reference/views", "no_reference", "the spec has no reference.views block (see references/reference-fit.md)")])
+    names = [v.strip() for v in args.views.split(",") if v.strip()] if args.views else None
+    out = Path(args.out)
+    model = shape.build_model(n, _boss_ctx(n, out, args))
+    excl = [v.strip() for v in (args.calibrate_exclude or "").split(",") if v.strip()]
+    res = fit.fit_views(model, views, names, out, auto=args.auto_calibrate, exclude=excl)
+    res["boxes"] = len(model.boxes)
+    if args.auto_calibrate:
+        res["views_calibration"] = {k: {"px_per_block": v["calibration"]["px_per_block"], "center_x": v["calibration"]["center_x"],
+                                        "ground_y": v["calibration"]["ground_y"]} for k, v in res["views"].items()}
+    res["warnings"] = [w.to_dict() for w in warns]
+    return _out(res)
+
+
+def cmd_reference_info(args) -> int:
+    from . import fit
+    crop = [int(v) for v in args.crop.split(",")] if args.crop else None
+    if crop is not None and len(crop) != 4:
+        return _fail([Err("/crop", "reference_bad_crop", "--crop needs x0,y0,x1,y1")])
+    return _out(fit.reference_info(args.image, args.grid, args.out, crop, args.zoom))
 
 
 # ------------------------------------------------------------------ parser
@@ -381,6 +414,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("catalog", help="(maintainer) rebuild the Epic Fight animation catalog")
     s.add_argument("--ef-ref", required=True); s.add_argument("--out", required=True); s.set_defaults(fn=cmd_catalog)
+
+    s = sub.add_parser("fit", help="compare the generated boxes with the reference views (IoU, hints, overlay PNGs)")
+    s.add_argument("spec"); s.add_argument("--out", required=True, help="directory for fit_<view>.png")
+    s.add_argument("--views", help="comma separated subset of the reference views (front,back,right,left)")
+    s.add_argument("--auto-calibrate", action="store_true", help="search px_per_block / center_x / ground_y that maximise the IoU and print them")
+    s.add_argument("--calibrate-exclude", help="comma separated box id globs (wings_*,cape*) left out of the --auto-calibrate search, e.g. parts that do not match the reference yet")
+    s.set_defaults(fn=cmd_fit)
+
+    s = sub.add_parser("reference-info", help="write a copy of a reference PNG with labelled pixel gridlines; print its size and the figures the auto mask finds")
+    s.add_argument("image"); s.add_argument("--grid", type=int, default=50, help="gridline spacing in image pixels (default 50)")
+    s.add_argument("--out", help="output PNG (default ./<image stem>_grid.png)"); s.add_argument("--crop", help="x0,y0,x1,y1: only this part of the image")
+    s.add_argument("--zoom", type=int, default=1, help="integer magnification of the written image (default 1)")
+    s.set_defaults(fn=cmd_reference_info)
     return p
 
 

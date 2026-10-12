@@ -168,13 +168,18 @@ def jstr(s: str) -> str:
 
 
 def load(path) -> dict:
+    """Read a spec file. A spec with a `reference` block also gets `_spec_dir` (the absolute directory of the file) so the
+    relative image paths of the reference views resolve (normalize/check keep it)."""
     p = Path(path)
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        d = json.loads(p.read_text(encoding="utf-8"))
     except FileNotFoundError:
         raise BossForgeError("", "file_not_found", "spec file not found: %s" % p)
     except json.JSONDecodeError as e:
         raise BossForgeError("", "bad_json", "%s: %s" % (p, e))
+    if isinstance(d, dict) and "reference" in d:
+        d["_spec_dir"] = str(p.resolve().parent)
+    return d
 
 
 def _is_num(v) -> bool:
@@ -349,7 +354,8 @@ def normalize_shape(s: dict) -> dict:
 
 def shape_model_height(n: dict) -> Optional[float]:
     """Total height (feet at 0) of the custom mesh, None when the shape cannot be built."""
-    key = json.dumps(n.get("shape"), sort_keys=True, default=str) + "|" + json.dumps(n["appearance"]["palette"], sort_keys=True)
+    key = (json.dumps(n.get("shape"), sort_keys=True, default=str) + "|" + json.dumps(n["appearance"]["palette"], sort_keys=True)
+           + "|" + json.dumps([n.get("reference"), n.get("_spec_dir"), sorted(id(v) for v in (n.get("_views") or {}).values())], sort_keys=True, default=str))
     if key not in _SHAPE_HEIGHT_CACHE:
         try:
             from . import shape as _shape
@@ -371,8 +377,24 @@ def _validate_shape(errs: List[Err], spec: dict) -> None:
     except ImportError:
         errs.append(Err("/shape", "shape_module_missing", "the shape module is not available"))
         return
-    for e in _shape.validate_shape(normalize_shape(s)):
+    for e in _shape.validate_shape(normalize_shape(s), spec):
         errs.append(Err("/shape" + e.path, e.code, e.message))
+
+
+def _validate_reference(errs: List[Err], warns: List[Err], spec: dict) -> None:
+    """`reference` block: the `views` part is validated by reference.py, the `bake` part by refbake.py."""
+    from . import reference as _reference
+    e, w = _reference.validate_reference(spec.get("reference"), spec.get("_spec_dir"))
+    errs.extend(e)
+    warns.extend(w)
+    ref = spec.get("reference")
+    if isinstance(ref, dict) and "bake" in ref:
+        try:
+            from . import refbake as _refbake
+        except ImportError:
+            return
+        errs.extend(_refbake.validate_bake(ref["bake"], "/reference/bake",
+                                           list(ref["views"]) if isinstance(ref.get("views"), dict) else None))
 
 
 def normalize(spec: dict) -> dict:
@@ -789,6 +811,8 @@ def check(spec: dict) -> Tuple[dict, List[Err], List[Err]]:
     _validate_appearance(errs, warns, spec.get("appearance") or {}, n)
     if "shape" in spec:
         _validate_shape(errs, spec)
+    if "reference" in spec:
+        _validate_reference(errs, warns, spec)
     # weapons
     ws = spec.get("weapons") or []
     if not isinstance(ws, list):

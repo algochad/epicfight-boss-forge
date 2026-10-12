@@ -90,6 +90,8 @@ def variants(name):
 
 def all_variants():
     for name in presets.PRESETS:
+        if name in shape.REFERENCE_PRESETS:  # tests/test_relief.py
+            continue
         for att, key, val in variants(name):
             yield name, att, key, val
 
@@ -116,7 +118,7 @@ def mirror_gap(boxes):
 
 class PresetCatalogTest(unittest.TestCase):
     def test_all_requested_presets_exist_with_documented_styles(self):
-        self.assertEqual(set(REQUIRED), set(presets.list_presets()))
+        self.assertEqual(set(REQUIRED) | set(shape.REFERENCE_PRESETS), set(presets.list_presets()))
         for name, styles in STYLES.items():
             self.assertEqual(list(styles), presets.PRESETS[name]["params"][
                 "pose" if name == "extra_arms" else "style"]["allowed"], name)
@@ -127,11 +129,16 @@ class PresetCatalogTest(unittest.TestCase):
         for name, p in presets.PRESETS.items():
             self.assertTrue(p["description"], name)
             for key in presets.COMMON_PARAMS:
+                if name in shape.REFERENCE_PRESETS and key == "scale":  # relief: the size comes from the art
+                    continue
                 self.assertIn(key, p["params"], "%s lacks %s" % (name, key))
-            self.assertEqual((0.5, 2.5), tuple(p["params"]["scale"]["range"]))
+            if "scale" in p["params"]:
+                self.assertEqual((0.5, 2.5), tuple(p["params"]["scale"]["range"]))
 
     def test_documented_defaults_form_a_valid_attachment(self):
         for name, p in presets.PRESETS.items():
+            if name in shape.REFERENCE_PRESETS:
+                continue
             att = {"preset": name}
             att.update({k: v["default"] for k, v in p["params"].items()})
             self.assertEqual([], [e.to_dict() for e in presets.validate_attachment(att)], name)
@@ -244,6 +251,8 @@ class ExpansionTest(unittest.TestCase):
 
     def test_scale_never_shrinks_a_preset_when_increased(self):
         for name in presets.PRESETS:
+            if name in shape.REFERENCE_PRESETS:  # no `scale`: the size comes from the reference
+                continue
             small = extent(expand({"id": name, "preset": name, "scale": 0.5}))
             mid = extent(expand({"id": name, "preset": name}))
             big = extent(expand({"id": name, "preset": name, "scale": 2.0}))

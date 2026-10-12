@@ -209,6 +209,37 @@ class CustomShapePipelineTests(unittest.TestCase):
         finally:
             shutil.rmtree(str(tmp), ignore_errors=True)
 
+    def test_reference_images_are_staged_into_the_project_and_survive_regeneration(self):
+        """The project copy of a spec lives in bossforge/bosses/, so its reference images must be copied to
+        bossforge/refs/ with rewritten paths; otherwise qa and regeneration cannot find them."""
+        from _path import SHIPPED_EXAMPLE
+        from bossforge_core import pngio
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            cv = pngio.Canvas(80, 160)
+            cv.fill((90, 140, 200, 255))
+            pngio.write_png(tmp / "sheet.png", cv)
+            raw = json.loads(SHIPPED_EXAMPLE.read_text(encoding="utf-8"))
+            raw["reference"] = {"views": {"front": {"image": "sheet.png", "mask": {"mode": "color", "bg": ["#000000"]},
+                                                    "ground_y": 150, "center_x": 40, "px_per_block": 50.0}}}
+            src = tmp / "spec" / "boss.json"
+            src.parent.mkdir()
+            (tmp / "sheet.png").rename(src.parent / "sheet.png")
+            src.write_text(json.dumps(raw), encoding="utf-8")
+            proj = make_project(tmp / "proj")
+            res = scaffold.add_boss(src, proj, tmp / "empty-cache", offline=True)
+            self.assertTrue(res["ok"], res)
+            self.assertTrue(res["qa"]["ok"], res["qa"])
+            copy = json.loads((proj / "bossforge/bosses/king_arthur.boss.json").read_text(encoding="utf-8"))
+            rel = copy["reference"]["views"]["front"]["image"]
+            self.assertTrue(rel.startswith("../refs/"), rel)
+            self.assertTrue((proj / "bossforge/bosses" / rel).is_file())
+            again = scaffold.add_boss(src, proj, tmp / "empty-cache", offline=True)
+            self.assertEqual(again["files"]["written"] + again["files"]["updated"] + again["files"]["conflicts"], [])
+            self.assertTrue(cli_main(["qa", "--project", str(proj)]) == 0)
+        finally:
+            shutil.rmtree(str(tmp), ignore_errors=True)
+
     def test_nightingale_example_is_a_complete_complex_character(self):
         """The reference-sheet example (wings, hairdo, ribbons, filigree, crystal staff) builds, has no stale
         `box:` globs (spec warnings) and ships the 64px staff sprite."""
