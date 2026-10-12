@@ -110,6 +110,83 @@
         }
       }
     },
+    "mesh": {
+      "description": "Imported body modelled in Blender: an EF mesh bundle (<stem>.efmesh.json + <stem>.meshmeta.json). Mutually exclusive with `shape` and body.template iron_golem. See references/skin-forge.md 'Painting an imported mesh'.",
+      "type": "object",
+      "required": [
+        "file"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "the .efmesh.json bundle file, relative to the spec (or absolute); the sidecar is <stem>.meshmeta.json next to it"
+        },
+        "groups": {
+          "type": "object",
+          "description": "per group (Blender material slot name, lower-case [a-z0-9_]) default style and region",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "material": {
+                "type": "string"
+              },
+              "color": {
+                "type": "string",
+                "description": "palette key or #rrggbb"
+              },
+              "accent": {
+                "type": "string",
+                "description": "palette key or #rrggbb"
+              },
+              "region": {
+                "enum": [
+                  "head",
+                  "torso",
+                  "arm_l",
+                  "arm_r",
+                  "leg_l",
+                  "leg_r",
+                  "private"
+                ],
+                "description": "default: derived per triangle from the dominant joint weights; private = a region of its own (box:<group>)"
+              }
+            }
+          }
+        },
+        "texture": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "size": {
+              "enum": [
+                64,
+                128,
+                256,
+                512,
+                1024,
+                2048
+              ],
+              "default": 512
+            },
+            "padding": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16,
+              "default": 4
+            },
+            "density": {
+              "type": "number",
+              "minimum": 8,
+              "maximum": 64,
+              "default": 32
+            }
+          }
+        }
+      }
+    },
     "faction": {
       "enum": [
         "neutral",

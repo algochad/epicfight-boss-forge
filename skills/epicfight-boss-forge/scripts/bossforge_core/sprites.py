@@ -582,6 +582,18 @@ def _orb(ap: dict, da: float, db: float, rad: float) -> Optional[RGB]:
     return col
 
 
+def _staff_dims(ap: dict) -> Tuple[float, float, float, float, float, float, float, float]:
+    """Axial layout of a staff in design px from the pommel: (total, foot, band, collar, cluster, zone, spire, shaft)."""
+    crystal = ap["shape"] == "crystal_staff"
+    total = min(_fit_length(44.0, 0.0) * ap["length"], _fit_length(1e9, 0.0, _MAX_TIP_MARGIN))
+    if crystal:
+        foot_l, band_l, collar_l, cluster_l, zone_h, spire_l = 3.8, 1.8, 2.1, 4.4, 8.4, 6.6 * ap["length"]
+    else:
+        foot_l, band_l, collar_l, cluster_l, zone_h, spire_l = 3.0, 1.2, 1.8, 0.0, 7.6, 7.0 * ap["length"]
+    shaft_l = max(total - (foot_l + band_l + collar_l + cluster_l + zone_h + spire_l), 3.0)
+    return total, foot_l, band_l, collar_l, cluster_l, zone_h, spire_l, shaft_l
+
+
 def _paint_staff(ap: dict, res: int, seed: int) -> Callable[[int, int], Optional[RGB]]:
     """crystal_staff: banded crystal shaft with gold rings, an orb in a gold/silver ring, a stepped crystal spire above,
     a crystal flare below and a crystal point at the foot. orb_staff: wooden shaft, an orb in a gold ring and a fan of
@@ -598,12 +610,7 @@ def _paint_staff(ap: dict, res: int, seed: int) -> Callable[[int, int], Optional
         "aqua": mix(mix(ap["grip"], ap["blade"], 0.35), (70, 225, 215), 0.35),
         "silver": mix((150, 156, 170), ap["blade"], 0.15),
     }
-    total = min(_fit_length(44.0, 0.0) * ap["length"], _fit_length(1e9, 0.0, _MAX_TIP_MARGIN))
-    if crystal:
-        foot_l, band_l, collar_l, cluster_l, zone_h, spire_l = 3.8, 1.8, 2.1, 4.4, 8.4, 6.6 * ap["length"]
-    else:
-        foot_l, band_l, collar_l, cluster_l, zone_h, spire_l = 3.0, 1.2, 1.8, 0.0, 7.6, 7.0 * ap["length"]
-    shaft_l = max(total - (foot_l + band_l + collar_l + cluster_l + zone_h + spire_l), 3.0)
+    total, foot_l, band_l, collar_l, cluster_l, zone_h, spire_l, shaft_l = _staff_dims(ap)
     a_s0 = foot_l + band_l
     a_s1 = a_s0 + shaft_l
     a_c0 = a_s1 + collar_l
@@ -750,6 +757,40 @@ def hold_point(category: str) -> Tuple[float, float]:
         raise ValueError("unknown weapon category %r; allowed: %s" % (category, ", ".join(CATEGORIES)))
     px, py = _point(HOLD_A[category], 0.0)
     return px / 2.0 - 8.0, 8.0 - py / 2.0
+
+
+# the hand grips a staff this far up its axis (fraction of the axis from the pommel); 0.40 is the spear's grip point
+STAFF_GRIP = 0.40
+
+
+def is_staff(category: str, appearance: Optional[dict]) -> bool:
+    """True for the spear-category staff shapes (`crystal_staff`, `orb_staff`)."""
+    return category == "spear" and (appearance or {}).get("shape") in STAFF_SHAPES
+
+
+def staff_geometry(appearance: Optional[dict]) -> Dict[str, object]:
+    """Where a staff lies inside its item sprite, in item-model units (the sprite is the unit square, origin bottom-left,
+    y up; 1.0 = the full width of the model quad).
+
+    Keys: `butt` and `tip` (x, y) at the two ends of the axis, `length` (axis length in quad widths, i.e. 1.0 would be
+    the full square side), `orb` (x, y) centre of the orb and `axis` the unit direction butt -> tip. The axis runs up-right
+    at 45 degrees, the same diagonal Epic Fight's own spear sprite uses. `appearance` needs `shape` and may carry `length`."""
+    ap = dict(DEFAULT_APPEARANCE)
+    ap.update(appearance or {})
+    if ap.get("shape") not in STAFF_SHAPES:
+        raise ValueError("%r is not a staff shape; allowed: %s" % (ap.get("shape"), ", ".join(STAFF_SHAPES)))
+    length = ap["length"]
+    if isinstance(length, bool) or not isinstance(length, (int, float)) or not 0.8 <= length <= 1.15:
+        raise ShapeError("length %r must be a number in 0.8..1.15" % (length,))
+    total, foot_l, band_l, collar_l, cluster_l, zone_h, spire_l, shaft_l = _staff_dims({"shape": ap["shape"], "length": float(length)})
+    tip_a = foot_l + band_l + shaft_l + collar_l + cluster_l + zone_h + spire_l
+    orb_a = foot_l + band_l + shaft_l + collar_l + cluster_l + zone_h / 2.0
+
+    def item(a: float) -> Tuple[float, float]:
+        px, py = _point(a, 0.0)
+        return px / 32.0, 1.0 - py / 32.0
+
+    return {"butt": item(0.0), "tip": item(tip_a), "orb": item(orb_a), "length": tip_a / 32.0, "axis": (_D[0], -_D[1])}
 
 
 def sprite_resolution(category: str, appearance: Optional[dict]) -> int:

@@ -1,0 +1,554 @@
+{
+  "schema": "epicfight-boss-forge/1",
+  "id": "nightingale",
+  "mod_id": "roundtable",
+  "mod_name": "Round Table Bosses",
+  "display_name": "Nightingale",
+  "title": "Angel of the Last Lullaby",
+  "tier": "major",
+  "lore": {
+    "summary": "A winged healer whose lullaby mends the wounded and silences the living.",
+    "backstory": "Nightingale tended the dying on a thousand battlefields until the dying stopped being grateful. Now she sings the final lullaby over every challenger, healing herself on their pain and sending feathered spirits to finish what her staff begins.",
+    "description": "A winged angel in a pale blue and white robe with a glowing cyan cross on her chest, a brown hair bun, a potion pouch at her hip and a crescent crystal staff.",
+    "personality": "Gentle, serene, merciless.",
+    "death_message": "The last lullaby fades, and Nightingale finally rests."
+  },
+  "size": {
+    "height": 3.0,
+    "width": 0.9
+  },
+  "body": {
+    "template": "biped"
+  },
+  "appearance": {
+    "description": "Celestial mage built as a real Blender model: layered angel wings (white to lavender to violet), grey-blue robe with a front slit and a cream tabard, blue cuffs and hem, glowing cyan cross, brown hair with a bun, bangs, side locks and leaf pins, long white ribbons, a belt pouch with potion vials, grey-blue boots with blue cuffs.",
+    "archetype": "cultist",
+    "palette": {
+      "primary": "#8f99b5",
+      "secondary": "#3d68a6",
+      "accent": "#f0d98a",
+      "skin": "#f2cdb0",
+      "hair": "#6a3e22",
+      "eyes": "#5a3a22"
+    },
+    "regions": {
+      "head": {
+        "material": "skin_soft",
+        "color": "skin"
+      },
+      "torso": {
+        "material": "silk",
+        "color": "primary"
+      },
+      "arms": {
+        "material": "silk",
+        "color": "primary"
+      },
+      "legs": {
+        "material": "silk",
+        "color": "#9ba8c4"
+      },
+      "hands": {
+        "material": "silk",
+        "color": "primary"
+      },
+      "feet": {
+        "material": "silk",
+        "color": "#a9b4cc"
+      }
+    },
+    "overlay": [],
+    "features": [
+      {
+        "type": "eyes",
+        "style": "anime",
+        "color": "#5a3a22",
+        "size": 1.0,
+        "y": 0.6
+      },
+      {
+        "type": "mouth",
+        "y": 0.86
+      },
+      {
+        "type": "blush",
+        "amount": 0.35
+      },
+      {
+        "type": "emblem",
+        "shape": "latin_cross",
+        "region": "torso",
+        "face": "front",
+        "color": "#8ff0ff",
+        "size": 0.9,
+        "cy": 0.72,
+        "glow": true
+      },
+      {
+        "type": "trim",
+        "region": "torso",
+        "where": "collar",
+        "color": "secondary",
+        "width": 0.1
+      },
+      {
+        "type": "filigree",
+        "region": "torso",
+        "face": "front",
+        "where": "panel",
+        "pattern": "collar_wing",
+        "cy": 0.14,
+        "width": 0.95,
+        "height": 0.3,
+        "color": "#e4eeff"
+      },
+      {
+        "type": "filigree",
+        "region": "torso",
+        "face": "front",
+        "where": "panel",
+        "pattern": "crest",
+        "cy": 0.68,
+        "width": 0.7,
+        "height": 0.3,
+        "color": "#f2ead3"
+      },
+      {
+        "type": "filigree",
+        "region": "torso",
+        "face": "back",
+        "where": "panel",
+        "pattern": "wing",
+        "cy": 0.3,
+        "width": 0.8,
+        "height": 0.25,
+        "color": "#e4eeff"
+      },
+      {
+        "type": "filigree",
+        "regions": [
+          "part:pauldron"
+        ],
+        "faces": [
+          "front",
+          "back"
+        ],
+        "where": "band",
+        "pattern": "key",
+        "lo": 0.1,
+        "hi": 0.9,
+        "color": "#f6efd8",
+        "cell": 2
+      },
+      {
+        "type": "gradient",
+        "regions": [
+          "part:skirt"
+        ],
+        "from": "#d8d2ff",
+        "lo": 0.0,
+        "hi": 0.18,
+        "texture": 0.3
+      },
+      {
+        "type": "filigree",
+        "regions": [
+          "part:skirt"
+        ],
+        "faces": [
+          "front",
+          "back",
+          "left",
+          "right"
+        ],
+        "where": "border",
+        "pattern": "lace",
+        "sides": [
+          "bottom"
+        ],
+        "color": "#ffffff"
+      },
+      {
+        "type": "gradient",
+        "regions": [
+          "part:boots"
+        ],
+        "from": "#e8eefa",
+        "lo": 0.0,
+        "hi": 0.35
+      },
+      {
+        "type": "filigree",
+        "regions": [
+          "part:tabard"
+        ],
+        "faces": [
+          "front"
+        ],
+        "where": "border",
+        "pattern": "line",
+        "sides": [
+          "left",
+          "right"
+        ],
+        "cell": 2,
+        "color": "#3d68a6"
+      },
+      {
+        "type": "filigree",
+        "regions": [
+          "part:tabard"
+        ],
+        "faces": [
+          "front"
+        ],
+        "where": "band",
+        "pattern": "key",
+        "lo": 0.08,
+        "hi": 0.3,
+        "cell": 2,
+        "color": "#7e93bf"
+      },
+      {
+        "type": "gradient",
+        "regions": [
+          "part:wing_c",
+          "part:wing_d"
+        ],
+        "from": "#d6d3f8",
+        "lo": 0.0,
+        "hi": 0.3,
+        "texture": 0.8
+      },
+      {
+        "type": "gradient",
+        "regions": [
+          "part:wing_a"
+        ],
+        "from": "#ffffff",
+        "to": "#f1f1fb",
+        "lo": 0.0,
+        "hi": 1.0,
+        "texture": 0.8
+      },
+      {
+        "type": "sparkle",
+        "regions": [
+          "part:wing_c",
+          "part:wing_d",
+          "part:wing_b"
+        ],
+        "density": 0.012,
+        "strength": 0.9
+      }
+    ],
+    "texture": {
+      "scale": 2
+    }
+  },
+  "weapons": [
+    {
+      "id": "lullaby_staff",
+      "display_name": "Glowing Staff of the Last Lullaby",
+      "category": "spear",
+      "rarity": "epic",
+      "damage": 8,
+      "attack_speed": -2.6,
+      "durability": 1800,
+      "appearance": {
+        "shape": "crystal_staff",
+        "blade": "#bfe9ff",
+        "guard": "#f0c850",
+        "grip": "#4aa0e8",
+        "accent": "#7fd6ff",
+        "gem": "#2ea8ff",
+        "glow": true,
+        "resolution": 64,
+        "rings": 2,
+        "spikes": 3
+      },
+      "effects": [
+        {
+          "on": "hit",
+          "effect": "minecraft:weakness",
+          "duration": 80,
+          "amplifier": 0,
+          "chance": 0.3
+        }
+      ],
+      "obtain": {
+        "drop": 0.25,
+        "craft": true
+      },
+      "lore": [
+        "A crescent of singing crystal.",
+        "It hums the tune of every patient she lost."
+      ],
+      "visual_scale": 1.0
+    }
+  ],
+  "main_weapon": "lullaby_staff",
+  "phases": [
+    {
+      "name": "Hymn",
+      "health_below": 1.0
+    },
+    {
+      "name": "Lament",
+      "health_below": 0.66,
+      "announce": "Nightingale's hymn turns to a lament and her wings flare wide."
+    },
+    {
+      "name": "Requiem",
+      "health_below": 0.33,
+      "announce": "The air fills with a shining requiem."
+    }
+  ],
+  "abilities": [
+    {
+      "type": "on_hit_effect",
+      "effect": "minecraft:weakness",
+      "duration": 100,
+      "amplifier": 0,
+      "chance": 0.35
+    },
+    {
+      "type": "summon",
+      "entity": "minecraft:vex",
+      "count": 2,
+      "phase": 2
+    },
+    {
+      "type": "aura",
+      "effect": "minecraft:slowness",
+      "radius": 8.0,
+      "interval": 60,
+      "duration": 60,
+      "amplifier": 0,
+      "phases": [
+        3
+      ]
+    },
+    {
+      "type": "regen",
+      "per_second": 2.0,
+      "phases": [
+        2,
+        3
+      ]
+    },
+    {
+      "type": "enrage",
+      "phase": 3,
+      "speed_pct": 15,
+      "damage_pct": 10
+    }
+  ],
+  "encounter": {
+    "trigger": "summon_item",
+    "summon_item": {
+      "required_block": null,
+      "dimension": null,
+      "consume": true
+    },
+    "boss_bar": {
+      "show": true,
+      "color": "white",
+      "overlay": "notched_10"
+    }
+  },
+  "sounds": {
+    "hurt": "minecraft:entity.allay.hurt",
+    "death": "minecraft:entity.allay.death",
+    "ambient": "minecraft:entity.allay.ambient_without_item"
+  },
+  "mesh": {
+    "file": "models/nightingale.efmesh.json",
+    "groups": {
+      "skin": {
+        "material": "skin_soft",
+        "color": "skin"
+      },
+      "hair": {
+        "material": "hair_soft",
+        "color": "hair",
+        "region": "private"
+      },
+      "robe": {
+        "material": "silk",
+        "color": "primary"
+      },
+      "skirt": {
+        "material": "silk",
+        "color": "primary",
+        "region": "private"
+      },
+      "tabard": {
+        "material": "silk",
+        "color": "#e8e3d0",
+        "region": "private"
+      },
+      "trim": {
+        "material": "silk",
+        "color": "secondary"
+      },
+      "boots": {
+        "material": "silk",
+        "color": "#a9b4cc"
+      },
+      "leather": {
+        "material": "leather",
+        "color": "#5b3d26",
+        "region": "private"
+      },
+      "pauldron": {
+        "material": "silk",
+        "color": "#a9b6d4",
+        "region": "private"
+      },
+      "ornament": {
+        "material": "plate_gold",
+        "color": "#7fc8c0",
+        "accent": "#f2ead3",
+        "region": "private"
+      },
+      "ribbon": {
+        "material": "silk",
+        "color": "#eef2ff",
+        "region": "private"
+      },
+      "wing_a": {
+        "material": "silk_feather",
+        "color": "#fbfbff",
+        "region": "private"
+      },
+      "wing_b": {
+        "material": "silk_feather",
+        "color": "#e9e7fb",
+        "region": "private"
+      },
+      "wing_c": {
+        "material": "silk_feather",
+        "color": "#9f9cef",
+        "region": "private"
+      },
+      "wing_d": {
+        "material": "silk_feather",
+        "color": "#8f8aeb",
+        "region": "private"
+      },
+      "vial_g": {
+        "material": "plate_gold",
+        "color": "#5fd9a0",
+        "region": "private"
+      },
+      "vial_v": {
+        "material": "plate_gold",
+        "color": "#9a5fe0",
+        "region": "private"
+      },
+      "vial_r": {
+        "material": "plate_gold",
+        "color": "#e86f9a",
+        "region": "private"
+      }
+    },
+    "texture": {
+      "size": 1024,
+      "padding": 4
+    }
+  },
+  "reference": {
+    "views": {
+      "front": {
+        "image": "refs/sheet_ortho_front_back.png",
+        "crop": [
+          0,
+          66,
+          462,
+          525
+        ],
+        "mask": {
+          "mode": "auto",
+          "keep": [
+            [
+              224,
+              300
+            ]
+          ],
+          "outline": 3,
+          "erode": 1
+        },
+        "ground_y": 516,
+        "center_x": 224.5,
+        "px_per_block": 241.667
+      },
+      "back": {
+        "image": "refs/sheet_ortho_front_back.png",
+        "crop": [
+          462,
+          66,
+          748,
+          525
+        ],
+        "mask": {
+          "mode": "auto",
+          "keep": [
+            [
+              680,
+              300
+            ]
+          ],
+          "outline": 3,
+          "erode": 1,
+          "exclude": [
+            [
+              [
+                440,
+                396
+              ],
+              [
+                502,
+                396
+              ],
+              [
+                502,
+                526
+              ],
+              [
+                440,
+                526
+              ]
+            ]
+          ]
+        },
+        "ground_y": 515,
+        "center_x": 686,
+        "px_per_block": 241.667
+      },
+      "right": {
+        "image": "refs/sheet_front_side_back.png",
+        "crop": [
+          456,
+          66,
+          600,
+          525
+        ],
+        "mask": {
+          "mode": "auto",
+          "keep": [
+            [
+              526,
+              300
+            ]
+          ],
+          "outline": 3,
+          "erode": 1
+        },
+        "ground_y": 512,
+        "center_x": 522,
+        "px_per_block": 241.667
+      }
+    }
+  }
+}

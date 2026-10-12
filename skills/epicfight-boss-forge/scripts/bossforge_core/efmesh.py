@@ -34,6 +34,10 @@ class Mesh:
     def region_of(self, part: str) -> Optional[str]:
         return self.part_regions.get(part)
 
+    def region_of_tri(self, tri: Tri) -> Optional[str]:
+        """Region of one triangle: the part's region, or the triangle's own for imported meshes (`meshsrc`)."""
+        return self.part_regions.get(tri.part)
+
     def parts(self) -> List[str]:
         seen = []
         for t in self.tris:

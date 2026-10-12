@@ -110,12 +110,18 @@ def generate(n: dict, ctx: BuildContext) -> Tuple[List[GenFile], Dict[str, str]]
     if d.get("custom"):
         from . import shape
         model = shape.build_model(n)
-        sh = n["shape"]
-        L += ["", "## Shape", "",
-              "Silhouette: `%s`. Attachments: %s." % (sh.get("silhouette") or "none",
-                                                     ", ".join("`%s`" % (a.get("id") or a.get("preset")) for a in sh["attachments"]) or "none"),
-              "Proportions: %s." % (", ".join("%s %s" % kv for kv in sorted(model.proportions.items())) or "default"),
-              "Free-form parts: %d; total boxes: %d." % (len(sh["parts"]), len(model.boxes)), ""]
+        if isinstance(n.get("mesh"), dict):
+            info = model.info
+            L += ["", "## Mesh", "",
+                  "Blender bundle `bossforge/models/%s.efmesh.json`: %d triangles, %d groups (%s), height %s blocks." % (
+                      n["id"], info["triangles"], len(info["groups"]), ", ".join("`%s`" % g for g in info["groups"]), info["height"]), ""]
+        else:
+            sh = n["shape"]
+            L += ["", "## Shape", "",
+                  "Silhouette: `%s`. Attachments: %s." % (sh.get("silhouette") or "none",
+                                                         ", ".join("`%s`" % (a.get("id") or a.get("preset")) for a in sh["attachments"]) or "none"),
+                  "Proportions: %s." % (", ".join("%s %s" % kv for kv in sorted(model.proportions.items())) or "default"),
+                  "Free-form parts: %d; total boxes: %d." % (len(sh["parts"]), len(model.boxes)), ""]
         tech = "- Custom Epic Fight mesh `%s` on the stock biped armature, texture %dx%d." % (d["model_id"], model.atlas[0], model.atlas[1])
     else:
         tech = "- Template `%s` (Epic Fight mesh `%s`), texture %dx%d." % (d["template"], tpl["mesh_name"],

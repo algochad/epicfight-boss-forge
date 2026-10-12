@@ -420,6 +420,13 @@ def run(project, spec_raw: Optional[dict] = None, cache_dir=None) -> List[_spec.
             if mp.is_file() and json.loads(mp.read_text(encoding="utf-8")).get("model") != d["model_id"]:
                 errs.append(Err(pre, "qa_model_mismatch", "mobpatch model must be %s" % d["model_id"]))
             model = shape.build_model(n)
+            if isinstance(n.get("mesh"), dict) and model_file.is_file():  # imported mesh: the game file is the staged bundle's mesh JSON
+                try:
+                    stale = json.loads(model_file.read_text(encoding="utf-8")) != model.mesh_json
+                except ValueError:
+                    stale = False  # reported above as qa_bad_mesh
+                if stale:
+                    errs.append(Err(pre, "qa_model_stale", "%s differs from the bundle %s: rerun add-boss" % (model_file.relative_to(root), n["mesh"]["file"])))
         if not tex.is_file():
             errs.append(Err(pre, "qa_missing_file", "entity texture missing"))
         else:
@@ -486,6 +493,14 @@ def run(project, spec_raw: Optional[dict] = None, cache_dir=None) -> List[_spec.
                 errs.append(Err(pre + "/weapons/" + w["id"], "qa_unobtainable", "weapon %s has no drop chance and is not craftable" % w["id"]))
             if not (res / "data" / mod / "capabilities" / "weapons" / (w["id"] + ".json")).is_file():
                 errs.append(Err(pre, "qa_missing_file", "EF capability for %s missing" % w["id"]))
+            item_model = res / "assets" / mod / "models" / "item" / (w["id"] + ".json")
+            if item_model.is_file():
+                from . import weapon as _weapon  # staff models: the held transform must stand the staff upright
+                try:
+                    parsed = json.loads(item_model.read_text(encoding="utf-8"))
+                except ValueError:
+                    parsed = None  # reported as qa_bad_json from the manifest scan
+                errs.extend(Err(pre + "/weapons/" + w["id"], c, m) for c, m in _weapon.audit_staff_model(parsed, w))
     for wid, entry in man.get("weapons", {}).items():
         sp = root / entry["spec"]
         if not sp.is_file():
@@ -497,6 +512,14 @@ def run(project, spec_raw: Optional[dict] = None, cache_dir=None) -> List[_spec.
             errs.append(Err("/weapons/" + wid, "qa_missing_lang", "lang key item.%s.%s missing" % (mod, wid)))
         if not (res / "data" / mod / "capabilities" / "weapons" / (wid + ".json")).is_file():
             errs.append(Err("/weapons/" + wid, "qa_missing_file", "EF capability missing"))
+        item_model = res / "assets" / mod / "models" / "item" / (wid + ".json")
+        if item_model.is_file():
+            from . import weapon as _weapon
+            try:
+                parsed = json.loads(item_model.read_text(encoding="utf-8"))
+            except ValueError:
+                parsed = None  # reported as qa_bad_json from the manifest scan
+            errs.extend(Err("/weapons/" + wid, c, m) for c, m in _weapon.audit_staff_model(parsed, w))
     if spec_raw is not None:
         sid = spec_raw.get("id")
         if sid not in man.get("bosses", {}) and sid not in man.get("weapons", {}):

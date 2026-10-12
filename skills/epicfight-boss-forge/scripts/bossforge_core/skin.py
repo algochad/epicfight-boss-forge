@@ -126,7 +126,7 @@ def _region_boxes(mesh, overlay_parts) -> Dict[Optional[str], Tuple[List[float],
     for tri in mesh.tris:
         if tri.part in overlay_parts:
             continue
-        region = mesh.region_of(tri.part)
+        region = mesh.region_of_tri(tri)
         lo, hi = boxes.setdefault(region, ([1e18, 1e18, 1e18], [-1e18, -1e18, -1e18]))
         for i in tri.p:
             p = mesh.positions[i]
@@ -174,6 +174,8 @@ def _build_texels(mesh, tpl: dict, cover, overlay_parts, front_sign: int, right_
     pos = mesh.positions
     nrm = mesh.normals
     out = []  # type: List[Texel]
+    island = getattr(mesh, "tri_island", None)  # imported meshes: UV island per triangle (a group spans many islands)
+    rect_keys = []  # type: List[Tuple[str, str, int]]
     for (x, y) in sorted(cover, key=lambda k: (k[1], k[0])):
         ti, l0, l1, l2 = cover[(x, y)]
         tri = mesh.tris[ti]
@@ -195,7 +197,7 @@ def _build_texels(mesh, tpl: dict, cover, overlay_parts, front_sign: int, right_
             n = (nx / nl, ny / nl, nz / nl)
         t.n = n
         t.part = tri.part
-        region = mesh.region_of(tri.part)
+        region = mesh.region_of_tri(tri)
         t.region = region
         t.layer = "overlay" if tri.part in overlay_parts else "base"
         t.styled = tri.part in styles
@@ -228,14 +230,15 @@ def _build_texels(mesh, tpl: dict, cover, overlay_parts, front_sign: int, right_
         t.eh = max(horiz, 1e-4)
         t.ev = max(hi[1] - lo[1], 1e-4)
         out.append(t)
+        rect_keys.append((tri.part, face, island[ti] if island is not None else 0))
     # position inside the atlas rectangle of the (part, face) a texel belongs to: materials such as silk_feather shade
     # along and across a box face whatever its rotation
-    rects = {}  # type: Dict[Tuple[str, str], List[int]]
-    for t in out:
-        r = rects.setdefault((t.part, t.face), [t.x, t.x, t.y, t.y])
+    rects = {}  # type: Dict[Tuple[str, str, int], List[int]]
+    for t, k in zip(out, rect_keys):
+        r = rects.setdefault(k, [t.x, t.x, t.y, t.y])
         r[0], r[1], r[2], r[3] = min(r[0], t.x), max(r[1], t.x), min(r[2], t.y), max(r[3], t.y)
-    for t in out:
-        x0, x1, y0, y1 = rects[(t.part, t.face)]
+    for t, k in zip(out, rect_keys):
+        x0, x1, y0, y1 = rects[k]
         cols, rows = x1 - x0 + 1, y1 - y0 + 1
         t.ru = (t.x - x0 + 0.5) / cols
         t.rv = (t.y - y0 + 0.5) / rows
@@ -314,11 +317,13 @@ def paint(mesh, tpl: dict, ap: dict, seed: int, front_sign: Optional[int] = None
     if custom:  # the atlas size is final; texel density is whatever the shape builder chose
         w, h = int(aw), int(ah)
         too_large = ("/shape/texture/density", "lower shape.texture.density")
+        if tpl.get("mesh_source"):
+            too_large = ("/mesh/texture/size", "lower mesh.texture.size")
     else:
         scale = int((ap.get("texture") or {}).get("scale", 2))
         w, h = aw * scale, ah * scale
         too_large = ("/appearance/texture/scale", "lower texture.scale")
-    limit = MAX_CUSTOM_EDGE if custom else MAX_TEXTURE_EDGE
+    limit = int(tpl.get("max_edge", MAX_CUSTOM_EDGE)) if custom else MAX_TEXTURE_EDGE
     if max(w, h) > limit:
         raise BossForgeError(too_large[0], "texture_too_large",
                              "texture %dx%d exceeds %d; %s" % (w, h, limit, too_large[1]))
@@ -384,7 +389,11 @@ def paint(mesh, tpl: dict, ap: dict, seed: int, front_sign: Optional[int] = None
     bake_args = (texels, cover, mesh, (w, h), tpl.get("uv_origin", "top"), fs, rs)
     if ref_bake is not None and ref_bake.cfg["order"] == "first":
         bake_stats = ref_bake.apply(*bake_args)
-    for f in ap.get("features") or []:
+    feats = ap.get("features") or []
+    if tpl.get("mesh_source"):  # `box:<glob>` names the GROUPS of an imported mesh (a part: target)
+        from . import meshsrc
+        feats = meshsrc.retarget_features(feats)
+    for f in feats:
         if isinstance(f, dict):
             features.apply_feature(st, f)
     if ref_bake is not None and ref_bake.cfg["order"] == "last":
@@ -408,16 +417,40 @@ def paint(mesh, tpl: dict, ap: dict, seed: int, front_sign: Optional[int] = None
             if t.rgb is not None:
                 overlay_opaque += 1
                 canvas.set(t.x, t.y, (t.rgb[0], t.rgb[1], t.rgb[2], 255))
-    # one dilation pass from painted base texels into texels no triangle covers (avoids edge bleed)
-    for y in range(h):
-        for x in range(w):
-            if (x, y) in cover:
-                continue
+    # dilation from painted base texels into texels no triangle covers (avoids edge bleed): one texel for every model, the
+    # `dilate` passes of the template (imported meshes: mesh.texture.padding) keep going outward so mipmaps stay clean
+    dilate = int(tpl.get("dilate", 1))
+    gaps = set()
+    for (bx, by) in (base_map if dilate >= 1 else ()):
+        for dx, dy in _NEIGHBORS:
+            q = (bx + dx, by + dy)
+            if 0 <= q[0] < w and 0 <= q[1] < h and q not in cover:
+                gaps.add(q)
+    painted = dict(base_map)
+    frontier = []  # type: List[Tuple[int, int]]
+    for (x, y) in sorted(gaps, key=lambda k: (k[1], k[0])):
+        for dx, dy in _NEIGHBORS:
+            c = base_map.get((x + dx, y + dy))
+            if c is not None:
+                canvas.set(x, y, (c[0], c[1], c[2], 255))
+                painted[(x, y)] = c
+                frontier.append((x, y))
+                break
+    for _pass in range(dilate - 1):
+        grown = {}  # type: Dict[Tuple[int, int], Tuple[int, int, int]]
+        for (x, y) in frontier:
+            c = painted[(x, y)]
             for dx, dy in _NEIGHBORS:
-                c = base_map.get((x + dx, y + dy))
-                if c is not None:
-                    canvas.set(x, y, (c[0], c[1], c[2], 255))
-                    break
+                q = (x + dx, y + dy)
+                if 0 <= q[0] < w and 0 <= q[1] < h and q not in cover and q not in painted and q not in grown:
+                    grown[q] = c
+        if not grown:
+            break
+        frontier = sorted(grown, key=lambda k: (k[1], k[0]))
+        for q in frontier:
+            c = grown[q]
+            canvas.set(q[0], q[1], (c[0], c[1], c[2], 255))
+            painted[q] = c
     if bake_stats is not None:
         warnings.extend(bake_stats.pop("warnings"))
     info = {
@@ -499,6 +532,8 @@ def generate_with_report(n: dict, ctx):
         report["custom"] = True
         report["atlas"] = [canvas.w, canvas.h]
         report["shape_warnings"] = shape_warnings
+        if getattr(model, "info", None):  # imported mesh: groups, texel density, UV coverage, regions
+            report["mesh"] = model.info
         if closeup_rel is not None:
             report["closeup"] = closeup_rel
     if bake is not None:  # reference bake: statistics plus [reference | model | difference] images per baked view

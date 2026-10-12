@@ -1,0 +1,45 @@
+{
+  "schema": "bossforge-hold-poses/1",
+  "source": "Epic Fight 20.14.17: assets/epicfight/animmodels/animations/biped/living/<pose>.json joint keyframes composed on the stock biped armature (biped.json) with efanim (JsonAssetLoader's Blender->Minecraft root rotation Rx(-90)); the item frame is pose[Tool_R] * T(0,0,-0.13) * Rx(-90) (RenderItemBase.GLOBAL_MAINHAND_ITEM_TRANSFORMS for Tool_R). Averaged over one animation loop (64 samples); the hand frame turns by at most `max_rotation_deviation_deg` degrees away from the mean during the loop. Regenerate with holdpose.derive_frames() (needs the Epic Fight jar). Cross-checked against a dev client: Epic Fight's own pose matrix of Tool_R while the Nightingale boss idles (hold_spear) has origin (0.250, 0.826, 0.415) and the same axes to 3 decimals.",
+  "space": "wielder body space at entity scale 1: x = wielder's right, y = up, z = backwards (the wielder faces -z), units = blocks (the stock biped is 1.8 tall)",
+  "item_frame": "axes[0], axes[1], axes[2] are the item model's local x (sprite right), y (sprite up) and z (sprite normal) directions in body space after Epic Fight's hand correction; origin is where the item model's pivot (the display transform origin) sits",
+  "reference_height": 1.8,
+  "poses": {
+    "bind": {
+      "origin": [0.37499, 0.81041, -0.10032],
+      "axes": [[1.0, 0.0, 0.0], [0.0, -0.09191, -0.99577], [0.0, 0.99577, -0.09191]],
+      "loop_seconds": 0.0,
+      "max_rotation_deviation_deg": 0.0
+    },
+    "idle": {
+      "origin": [0.41252, 0.82361, 0.07242],
+      "axes": [[0.88453, 0.06782, 0.46152], [0.46364, -0.01887, -0.88582], [-0.05137, 0.99752, -0.04813]],
+      "loop_seconds": 2.6667,
+      "max_rotation_deviation_deg": 0.33
+    },
+    "walk": {
+      "origin": [0.39434, 0.81129, -0.16795],
+      "axes": [[0.99811, 0.05177, 0.03319], [0.02798, 0.09821, -0.99477], [-0.05475, 0.99382, 0.09657]],
+      "loop_seconds": 0.7833,
+      "max_rotation_deviation_deg": 22.4
+    },
+    "hold_spear": {
+      "origin": [0.37593, 0.79713, 0.4132],
+      "axes": [[0.10992, 0.21881, 0.96956], [0.96414, -0.26056, -0.05051], [0.24157, 0.94034, -0.2396]],
+      "loop_seconds": 2.6667,
+      "max_rotation_deviation_deg": 1.5
+    },
+    "walk_spear": {
+      "origin": [0.51347, 0.80741, 0.20316],
+      "axes": [[0.52778, 0.27599, 0.80329], [0.83515, -0.34103, -0.43154], [0.15484, 0.89862, -0.41049]],
+      "loop_seconds": 0.7833,
+      "max_rotation_deviation_deg": 15.47
+    },
+    "run_spear": {
+      "origin": [0.46941, 1.08393, 0.32378],
+      "axes": [[0.3467, 0.90322, 0.25297], [0.85256, -0.19101, -0.48647], [-0.39107, 0.38433, -0.83628]],
+      "loop_seconds": 0.5333,
+      "max_rotation_deviation_deg": 6.78
+    }
+  }
+}

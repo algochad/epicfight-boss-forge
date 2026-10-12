@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from bossforge_core import spec, sprites, weapon
+from bossforge_core import holdpose, spec, sprites, weapon
 from bossforge_core.pngio import decode_png, png_size
 from bossforge_core.spec import BossForgeError, Err, GUARD_SHAPES, POMMEL_SHAPES
 
@@ -817,6 +817,334 @@ class VisualScaleTests(unittest.TestCase):
         n, files, _ = boss("major", weapons=weapons)
         d = jload(files, "assets/roundtable/models/item/excalibur.json")["base"]["display"]
         self.assertEqual(d["thirdperson_righthand"]["scale"], [0.75, 0.75, 0.85])
+
+
+def dot(a, b):
+    return sum(x * y for x, y in zip(a, b))
+
+
+def angle_deg(a, b):
+    return math.degrees(math.acos(max(-1.0, min(1.0, dot(a, b)))))
+
+
+def staff_ends(appearance):
+    g = sprites.staff_geometry(appearance)
+    return g, g["butt"], g["tip"]
+
+
+class HoldPoseTests(unittest.TestCase):
+    """The hand frames and the solver behind a staff's `thirdperson_righthand` display transform."""
+
+    def test_stored_frames_are_rotations(self):
+        d = spec.data("hold-poses")
+        self.assertEqual(d["reference_height"], 1.8)
+        self.assertIn("hold_spear", d["poses"])
+        for name, pose in d["poses"].items():
+            ax = pose["axes"]
+            for i in range(3):
+                for j in range(3):
+                    self.assertAlmostEqual(dot(ax[i], ax[j]), 1.0 if i == j else 0.0, delta=3e-3, msg=(name, i, j))
+            x, y, z = ax
+            cross = (x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0])
+            self.assertGreater(dot(cross, z), 0.99, name)  # right-handed
+            origin, rot = holdpose.hand_frame(name)
+            self.assertTrue(0.6 < origin[1] < 1.2, name)  # the hand is hip to chest high
+
+    def test_stored_frames_are_what_the_epic_fight_files_give(self):
+        try:
+            derived = holdpose.derive_frames(offline=True)
+        except BossForgeError as e:
+            self.skipTest("Epic Fight assets not available: %s" % e)
+        stored = spec.data("hold-poses")["poses"]
+        self.assertEqual(sorted(derived), sorted(stored))
+        for name, pose in derived.items():
+            for a, b in zip(pose["origin"], stored[name]["origin"]):
+                self.assertAlmostEqual(a, b, delta=1e-3, msg=name)
+            for ra, rb in zip(pose["axes"], stored[name]["axes"]):
+                for a, b in zip(ra, rb):
+                    self.assertAlmostEqual(a, b, delta=1e-3, msg=name)
+            self.assertAlmostEqual(pose["loop_seconds"], stored[name]["loop_seconds"], delta=1e-3)
+
+    def test_tool_r_origin_matches_what_the_engine_reported(self):
+        # `bossforge render-test` printed Epic Fight's own Tool_R pose matrix while the Nightingale boss idled in hold_spear:
+        # origin (0.250, 0.826, 0.415) in body space (RT_POSE, EF 20.14.17). The stored item frame is pose * T(0,0,-0.13) * Rx(-90).
+        origin, rf = holdpose.hand_frame("hold_spear")
+        rw = holdpose._mul(rf, holdpose.rot_xyz(90, 0, 0))
+        tool = [origin[i] + 0.13 * rw[i][2] for i in range(3)]
+        for got, want in zip(tool, (0.250, 0.826, 0.415)):
+            self.assertAlmostEqual(got, want, delta=0.01)
+
+    def test_minecraft_rotation_order_and_euler_round_trip(self):
+        s = math.sqrt(0.5)
+        # Epic Fight's own spear display [0,-90,35] turns the sprite diagonal (up-right) about Z first, then Y
+        v = holdpose._apply(holdpose.rot_xyz(0, -90, 35), (s, s, 0.0))
+        for got, want in zip(v, (0.0, math.sin(math.radians(80)), math.cos(math.radians(80)))):
+            self.assertAlmostEqual(got, want, places=6)
+        self.assertAlmostEqual(holdpose._apply(holdpose.rot_xyz(0, 0, 90), (1, 0, 0))[1], 1.0, places=6)
+        self.assertAlmostEqual(holdpose._apply(holdpose.rot_xyz(90, 0, 0), (0, 1, 0))[2], 1.0, places=6)
+        for rx in (-170, -90, -33.5, 0, 12, 90, 160):
+            for ry in (-80, -45, 0, 30, 85):
+                for rz in (-120, -35, 0, 55, 179):
+                    m = holdpose.rot_xyz(rx, ry, rz)
+                    back = holdpose.rot_xyz(*holdpose.euler_xyz(m))
+                    for r1, r2 in zip(m, back):
+                        for a, b in zip(r1, r2):
+                            self.assertAlmostEqual(a, b, places=6, msg=(rx, ry, rz))
+
+    def test_epic_fights_spear_display_lays_a_staff_across_the_body(self):
+        # the bug the user saw: the stock epicfight:item/spear transform, in the hold_spear pose, points the sprite axis sideways
+        ef_spear = {"rotation": [0, -90, 35], "translation": [0.0, 2, 1.5], "scale": [2.5, 2.5, 1.0]}
+        g, butt, tip = staff_ends({"shape": "crystal_staff"})
+        axis = holdpose.direction(ef_spear, butt, tip)
+        self.assertGreater(abs(axis[0]), 0.95)  # along the wielder's left-right axis
+        self.assertLess(abs(axis[1]), 0.2)  # not upright at all
+        pb, pt = holdpose.place(ef_spear, butt), holdpose.place(ef_spear, tip)
+        self.assertGreater(math.dist(pb, pt), 3.0)  # and 3.5 blocks long: twice the wielder's height
+
+    def test_staff_stands_upright_in_the_hold_pose(self):
+        for shape in STAFF_SHAPES:
+            for length in (0.8, 1.0, 1.15):
+                ap = {"shape": shape, "length": length}
+                g, butt, tip = staff_ends(ap)
+                for hold in ({}, {"lean": 0}, {"lean": 25, "side": 15}, {"lean": -10, "side": -20}):
+                    d = holdpose.staff_display(ap, 1.0, hold)
+                    want = holdpose._target_axis(hold.get("lean", holdpose.DEFAULT_LEAN), hold.get("side", 0.0))
+                    got = holdpose.direction(d, butt, tip)
+                    self.assertLess(angle_deg(got, want), 0.05, (shape, length, hold))
+                    # the sprite plane faces the wielder's front, so the weapon sheet's front face reads from the front
+                    self.assertGreater(dot(holdpose.normal(d), (0, 0, -1)), 0.9, (shape, length, hold))
+                    # the staff is as long as the stock biped is tall (1.8 blocks at entity scale 1)
+                    self.assertAlmostEqual(math.dist(holdpose.place(d, butt), holdpose.place(d, tip)), 1.8, delta=0.003)
+
+    def test_the_hand_grips_the_axis_at_the_grip_fraction(self):
+        origin, _ = holdpose.hand_frame()
+        for grip in (0.1, sprites.STAFF_GRIP, 0.8):
+            ap = {"shape": "crystal_staff"}
+            g, butt, tip = staff_ends(ap)
+            d = holdpose.staff_display(ap, 1.0, {"grip": grip})
+            pt = (butt[0] + grip * (tip[0] - butt[0]), butt[1] + grip * (tip[1] - butt[1]))
+            for a, b in zip(holdpose.place(d, pt), origin):
+                self.assertAlmostEqual(a, b, delta=0.002, msg=grip)
+
+    def test_visual_scale_is_the_staff_length_in_wielder_heights(self):
+        ap = {"shape": "orb_staff"}
+        g, butt, tip = staff_ends(ap)
+        for s in (0.4, 0.85, 1.0, 1.3):
+            d = holdpose.staff_display(ap, s)
+            self.assertAlmostEqual(math.dist(holdpose.place(d, butt), holdpose.place(d, tip)), 1.8 * s, delta=0.003)
+            self.assertEqual(d["scale"][0], d["scale"][1])
+            self.assertEqual(d["scale"][2], 1.0)
+        with self.assertRaises(BossForgeError) as cm:
+            holdpose.staff_display(ap, 4.0)  # display scale would pass Minecraft's clamp of 4
+        self.assertEqual(cm.exception.err.code, "out_of_range")
+
+    def test_facing_side_and_offset(self):
+        ap = {"shape": "crystal_staff"}
+        g, butt, tip = staff_ends(ap)
+        side = holdpose.staff_display(ap, 1.0, {"facing": "side"})
+        self.assertGreater(dot(holdpose.normal(side), (1, 0, 0)), 0.9)
+        self.assertLess(angle_deg(holdpose.direction(side, butt, tip), holdpose._target_axis(10, 0)), 0.05)
+        base = holdpose.staff_display(ap, 1.0)
+        moved = holdpose.staff_display(ap, 1.0, {"offset": [0.1, 0.0, -0.2]})
+        mid = (0.5, 0.5)
+        _, rf = holdpose.hand_frame()
+        want = holdpose._apply(rf, (0.1, 0.0, -0.2))
+        for a, b, w in zip(holdpose.place(moved, mid), holdpose.place(base, mid), want):
+            self.assertAlmostEqual(a - b, w, delta=0.002)
+        self.assertEqual(moved["rotation"], base["rotation"])
+
+    def test_other_poses_stay_close_to_upright(self):
+        # the model is solved for hold_spear (the pose EF plays for a held spear/staff, mobs and players); the same display
+        # in the other poses a staff wielder shows (measured with the stored frames): at most ~15 degrees from the solved lean
+        ap = {"shape": "crystal_staff"}
+        g, butt, tip = staff_ends(ap)
+        d = holdpose.staff_display(ap)
+        for pose, limit in (("hold_spear", 10.5), ("idle", 15.0), ("bind", 15.0), ("walk_spear", 17.0), ("walk", 22.0)):
+            axis = holdpose.direction(d, butt, tip, pose)
+            self.assertLess(angle_deg(axis, (0, 1, 0)), limit, pose)
+
+    def test_the_grip_is_within_the_hand_for_every_pose(self):
+        ap = {"shape": "crystal_staff"}
+        g, butt, tip = staff_ends(ap)
+        d = holdpose.staff_display(ap)
+        grip = (butt[0] + sprites.STAFF_GRIP * (tip[0] - butt[0]), butt[1] + sprites.STAFF_GRIP * (tip[1] - butt[1]))
+        for pose in holdpose.pose_names():
+            self.assertLess(math.dist(holdpose.place(d, grip, pose), holdpose.hand_frame(pose)[0]), 0.35, pose)
+
+    def test_minecraft_limits_are_respected(self):
+        for shape in STAFF_SHAPES:
+            for length in (0.8, 1.15):
+                for hold in ({}, {"offset": [1, 1, 1]}, {"offset": [-1, -1, -1], "grip": 0.8}, {"lean": 60, "side": 45}):
+                    d = holdpose.staff_display({"shape": shape, "length": length}, 1.5, hold)
+                    self.assertTrue(all(abs(v) <= 4.0 for v in d["scale"]))
+                    self.assertTrue(all(abs(v) <= 80.0 for v in d["translation"]))
+                    for v in d["rotation"] + d["translation"] + d["scale"]:
+                        self.assertIsInstance(v, float)
+                        self.assertTrue(math.isfinite(v))
+                        self.assertNotEqual(repr(v), "-0.0")
+
+    def test_the_sprite_really_lies_on_the_axis_the_solver_uses(self):
+        for shape in STAFF_SHAPES:
+            ap = dict(STAFF, shape=shape, glow=True)
+            g = sprites.staff_geometry(ap)
+            cv = sprites.render_weapon("spear", ap, 64, 5)
+
+            def pix(p, along=0.0):
+                x = p[0] + along * g["axis"][0]
+                y = p[1] + along * g["axis"][1]
+                return cv.get(int(x * 64), int((1.0 - y) * 64))
+
+            # the axis ends on opaque pixels and nothing opaque follows 4 pixels beyond either end
+            self.assertEqual(pix(g["tip"], -1 / 64.0)[3], 255, shape)
+            self.assertEqual(pix(g["butt"], 1 / 64.0)[3], 255, shape)
+            self.assertLess(pix(g["tip"], 4 / 64.0)[3], 255, shape)
+            self.assertLess(pix(g["butt"], -4 / 64.0)[3], 255, shape)
+            # the orb sits at 60-80 % of the axis and its centre is the bright gem core
+            frac = math.dist(g["butt"], g["orb"]) / math.dist(g["butt"], g["tip"])
+            self.assertTrue(0.6 < frac < 0.8, (shape, frac))
+            core = pix(g["orb"])
+            self.assertEqual(core[3], 255)
+            self.assertGreater(min(core[:3]), 150, (shape, core))
+            self.assertGreaterEqual(core[2], core[0])
+
+    def test_axis_length_follows_the_length_option(self):
+        lens = [sprites.staff_geometry({"shape": "crystal_staff", "length": v})["length"] for v in (0.8, 0.9, 1.0, 1.1, 1.15)]
+        self.assertTrue(all(b >= a - 1e-9 for a, b in zip(lens, lens[1:])), lens)  # the longest options hit the canvas cap together
+        self.assertLess(lens[0], lens[-1])
+        self.assertLess(lens[-1], math.sqrt(2.0))  # inside the unit square
+        self.assertEqual(sprites.staff_geometry({"shape": "crystal_staff", "length": 1.0})["axis"], (math.sqrt(0.5), math.sqrt(0.5)))
+
+    def test_bad_inputs(self):
+        self.assertTrue(sprites.is_staff("spear", {"shape": "orb_staff"}))
+        self.assertFalse(sprites.is_staff("spear", {"shape": "leaf"}))
+        self.assertFalse(sprites.is_staff("spear", None))
+        self.assertFalse(sprites.is_staff("sword", {"shape": "crystal_staff"}))
+        with self.assertRaises(ValueError):
+            sprites.staff_geometry({"shape": "leaf"})
+        with self.assertRaises(BossForgeError):
+            holdpose.hand_frame("flying_carpet")
+        for bad, code in (({"lean": 99}, "out_of_range"), ({"lean": "up"}, "bad_type"), ({"facing": "back"}, "unknown_value"),
+                          ({"offset": [0, 0]}, "bad_type"), ({"offset": [2, 0, 0]}, "bad_type"), ({"turn": 1}, "unknown_key"),
+                          ({"grip": 0.95}, "out_of_range"), ("fast", "bad_type")):
+            errs = holdpose.check_hold(bad)
+            self.assertEqual([e[1] for e in errs][:1], [code], bad)
+            if isinstance(bad, dict):
+                with self.assertRaises(BossForgeError):
+                    holdpose.staff_display({"shape": "crystal_staff"}, 1.0, bad)
+        self.assertEqual(holdpose.check_hold(None), [])
+        self.assertEqual(holdpose.check_hold({}), [])
+
+
+class StaffModelTests(unittest.TestCase):
+    """The generated item model of a staff: shape of the JSON, display validity, untouched perspectives."""
+
+    PARENT = "epicfight:item/spear"
+
+    def staff_model(self, visual_scale=1.0, hold=None, shape="crystal_staff"):
+        return weapon.model_json("spear", "m", "w", visual_scale, dict(STAFF, shape=shape), hold)
+
+    def test_staff_always_gets_a_hand_display_even_at_scale_one(self):
+        for shape in STAFF_SHAPES:
+            m = self.staff_model(1.0, None, shape)
+            self.assertEqual(m["loader"], "forge:separate_transforms")
+            self.assertEqual(m["base"]["parent"], self.PARENT)
+            self.assertEqual(sorted(m["base"]["display"]), sorted(HAND_KEYS))
+            self.assertNotIn("display", m)
+            self.assertEqual(m["base"]["textures"], {"layer0": "m:item/w"})
+
+    def test_other_spear_shapes_keep_the_parent_model(self):
+        for shape in ("leaf", "trident", "hooked", "broad"):
+            self.assertEqual(weapon.model_json("spear", "m", "w", 1.0, {"shape": shape}), weapon.model_json("spear", "m", "w", 1.0))
+            self.assertNotIn("display", json.dumps(weapon.model_json("spear", "m", "w", 1.0, {"shape": shape})))
+
+    def test_only_the_right_hand_entry_differs_from_the_scaled_parent(self):
+        for s in (0.7, 1.0, 1.2):
+            staff = self.staff_model(s)["base"]["display"]
+            plain = weapon.display_json("spear", s)
+            for key in HAND_KEYS:
+                if key == "thirdperson_righthand":
+                    self.assertNotEqual(staff[key], plain[key])
+                    self.assertEqual(staff[key], holdpose.staff_display(dict(STAFF), s, None))
+                else:
+                    self.assertEqual(staff[key], plain[key], key)
+
+    def test_inventory_ground_and_frame_perspectives_are_unchanged(self):
+        m = self.staff_model(0.85, {"lean": 20})
+        plain = weapon.model_json("spear", "m", "w")
+        self.assertEqual(m["perspectives"], plain["perspectives"])
+        self.assertEqual(m["gui_light"], "front")
+        for p in m["perspectives"].values():
+            self.assertNotIn("display", p)  # gui/ground/fixed keep the parent's transforms
+            self.assertEqual(p["parent"], self.PARENT)
+            self.assertEqual(p["textures"], {"layer0": "m:item/w_gui"})
+
+    def test_the_json_is_valid_for_minecraft(self):
+        text = json.dumps(self.staff_model(1.3, {"lean": 30, "side": 20, "offset": [0.2, -0.1, 0.1]}))
+        data = json.loads(text)
+        for key, entry in data["base"]["display"].items():
+            self.assertEqual(sorted(entry), ["rotation", "scale", "translation"], key)
+            for part, n in (("rotation", 3), ("translation", 3), ("scale", 3)):
+                self.assertEqual(len(entry[part]), n, (key, part))
+                for v in entry[part]:
+                    self.assertIsInstance(v, float)
+                    self.assertTrue(math.isfinite(v))
+            self.assertTrue(all(abs(v) <= 4.0 for v in entry["scale"]), key)  # Minecraft clamps the scale to +-4
+            self.assertTrue(all(abs(v) <= 80.0 for v in entry["translation"]), key)  # ... and the translation to +-80/16 blocks
+        self.assertNotIn("NaN", text)
+        self.assertNotIn("-0.0,", text)
+
+    def test_hold_knobs_reach_the_model(self):
+        base = self.staff_model()["base"]["display"]["thirdperson_righthand"]
+        for hold in ({"lean": 0}, {"side": 12}, {"grip": 0.6}, {"facing": "side"}, {"offset": [0.1, 0, 0]}):
+            self.assertNotEqual(self.staff_model(1.0, hold)["base"]["display"]["thirdperson_righthand"], base, hold)
+
+    def test_standalone_staff_files_and_spec_validation(self):
+        files, _ = standalone("spear", visual_scale=0.9, hold={"lean": 5}, appearance=dict(STAFF))
+        m = jload(files, "assets/testmod/models/item/test_blade.json")
+        self.assertEqual(m["base"]["display"]["thirdperson_righthand"], holdpose.staff_display(dict(STAFF), 0.9, {"lean": 5}))
+        self.assertEqual(spec.validate_weapon_spec(weapon_spec("spear", appearance=dict(STAFF), hold={"lean": 5, "grip": 0.5})), [])
+        codes = {e.path: e.code for e in spec.validate_weapon_spec(weapon_spec("spear", appearance=dict(STAFF), hold={"lean": 99, "x": 1}))}
+        self.assertEqual(codes, {"/hold/lean": "out_of_range", "/hold/x": "unknown_key"})
+        for cat, ap in (("sword", {}), ("spear", {"shape": "leaf"}), ("greatsword", {})):
+            errs = spec.validate_weapon_spec(weapon_spec(cat, appearance=ap, hold={"lean": 5}))
+            self.assertEqual([(e.path, e.code) for e in errs], [("/hold", "hold_not_applicable")], cat)
+
+    def test_staffs_do_not_shrink_with_the_boss_scale(self):
+        staff = {"category": "spear", "appearance": dict(STAFF)}
+        for scale in (1.0, 1.5, 3.0):
+            self.assertEqual(weapon.effective_visual_scale(staff, scale, True), 1.0)
+        self.assertEqual(weapon.effective_visual_scale(dict(staff, visual_scale=0.8), 3.0, True), 0.8)
+        self.assertEqual(weapon.effective_visual_scale({"category": "spear", "appearance": {"shape": "leaf"}}, 1.5, True), 0.82)
+
+    def test_audit_flags_the_old_epic_fight_spear_transform_and_passes_the_generated_one(self):
+        w = {"id": "w", "category": "spear", "appearance": dict(STAFF)}
+        good = self.staff_model()
+        self.assertEqual(weapon.audit_staff_model(good, w), [])
+        self.assertEqual(weapon.audit_staff_model(self.staff_model(0.8, {"lean": 25, "side": -10}), dict(w, hold={"lean": 25, "side": -10})), [])
+        # what the generator wrote before: the parent spear transform with the visual_scale applied (the user's giant sideways staff)
+        old = weapon.model_json("spear", "m", "w", 0.85)
+        self.assertEqual([c for c, _ in weapon.audit_staff_model(old, w)], ["qa_staff_lies_flat"])
+        # the model does not match the weapon's hold knobs either
+        self.assertEqual([c for c, _ in weapon.audit_staff_model(good, dict(w, hold={"lean": 40}))], ["qa_staff_lies_flat"])
+        plain = weapon.model_json("spear", "m", "w", 1.0)
+        self.assertEqual([c for c, _ in weapon.audit_staff_model(plain, w)], ["qa_staff_no_display"])
+        self.assertEqual([c for c, _ in weapon.audit_staff_model(None, w)], ["qa_staff_no_display"])
+        broken = json.loads(json.dumps(good))
+        broken["base"]["display"]["thirdperson_righthand"]["scale"] = [9.0, 9.0, 1.0]
+        self.assertEqual([c for c, _ in weapon.audit_staff_model(broken, w)], ["qa_staff_bad_display"])
+        broken["base"]["display"]["thirdperson_righthand"]["scale"] = ["x", 1, 1]
+        self.assertEqual([c for c, _ in weapon.audit_staff_model(broken, w)], ["qa_staff_bad_display"])
+        for cat in ("sword", "spear", "greatsword"):
+            self.assertEqual(weapon.audit_staff_model(None, {"category": cat, "appearance": {"shape": "leaf"} if cat == "spear" else {}}), [])
+
+    def test_boss_staff_model_is_independent_of_the_mesh_scale(self):
+        raw = json.loads(Path(_path.EXAMPLE).read_text(encoding="utf-8"))
+        weapons = [dict(raw["weapons"][0], id="glow_staff", category="spear", appearance=dict(STAFF), hold={"lean": 8})]
+        weapons[0].pop("visual_scale", None)
+        n, files, _ = boss("major", weapons=weapons, main_weapon="glow_staff")
+        self.assertEqual(n["derived"]["scale"], 1.5)  # a big boss: a plain weapon would shrink to 0.82
+        d = jload(files, "assets/roundtable/models/item/glow_staff.json")["base"]["display"]["thirdperson_righthand"]
+        self.assertEqual(d, holdpose.staff_display(dict(STAFF), 1.0, {"lean": 8}))
 
 
 if __name__ == "__main__":

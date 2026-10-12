@@ -347,11 +347,55 @@ def cmd_reference_info(args) -> int:
     return _out(fit.reference_info(args.image, args.grid, args.out, crop, args.zoom))
 
 
+# ------------------------------------------------------------------ blender pipeline
+def _blender_result(res: dict, extra: Optional[dict] = None) -> int:
+    res = dict(res)
+    if extra:
+        for k, v in extra.items():
+            res.setdefault(k, v)
+    return _out(res, 0 if res.get("ok") else 1)
+
+
+def cmd_blender_doctor(args) -> int:
+    from . import blender
+    exe = blender.find_blender(args.blender)
+    mcp = {"host": blender.MCP_HOST, "port": blender.MCP_PORT, "reachable": blender.mcp_port_reachable(), "note": "informational: the pipeline only uses headless Blender subprocesses"}
+    if exe is None:
+        return _fail([Err("/blender", "blender_missing", "no Blender executable found; install Blender 4.2+ or pass --blender PATH / set BLENDER")], {"mcp": mcp})
+    res = blender.run_task("doctor", {}, timeout=120)
+    return _blender_result(res, {"path": str(exe), "mcp": mcp})
+
+
+def cmd_blender_rig(args) -> int:
+    from . import blender
+    out = Path(args.out).resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    return _blender_result(blender.run_task("rig", {"out": str(out), "name": args.name}, timeout=120))
+
+
+def cmd_blender_import(args) -> int:
+    from . import blender
+    out = Path(args.out).resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    a = {"source": str(Path(args.source).resolve()), "out": str(out), "name": args.name, "id": args.id,
+         "texture": str(Path(args.texture).resolve()) if args.texture else None, "no_custom_normals": args.no_custom_normals}
+    return _blender_result(blender.run_task("import", a, timeout=300))
+
+
+def cmd_blender_export(args) -> int:
+    from . import blender
+    blend = Path(args.blend).resolve()
+    a = {"out": str(Path(args.out).resolve()), "object": args.object, "rig": args.rig, "id": args.id,
+         "max_influences": args.max_influences, "strict": args.strict, "source": blend.name}
+    return _blender_result(blender.run_task("export", a, blend=blend, timeout=300))
+
+
 # ------------------------------------------------------------------ parser
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="bossforge", description="Epic Fight boss generator (Forge 1.20.1)")
     p.add_argument("--cache-dir", help="mesh/MDK cache (default $BOSSFORGE_CACHE or ~/.cache/epicfight-boss-forge)")
     p.add_argument("--offline", action="store_true", help="never touch the network")
+    p.add_argument("--blender", help="Blender executable for `blender ...` commands (default: $BLENDER, PATH, /usr/bin/blender, flatpak/snap/macOS/Windows locations)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("list", help="print catalog data as JSON")
@@ -427,13 +471,42 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--out", help="output PNG (default ./<image stem>_grid.png)"); s.add_argument("--crop", help="x0,y0,x1,y1: only this part of the image")
     s.add_argument("--zoom", type=int, default=1, help="integer magnification of the written image (default 1)")
     s.set_defaults(fn=cmd_reference_info)
+
+    s = sub.add_parser("blender", help="Blender pipeline: model + skeleton in Blender, procedural texture here (see references/blender-pipeline.md)")
+    bsub = s.add_subparsers(dest="blender_cmd", required=True)
+    b = bsub.add_parser("doctor", help="find Blender, run a headless smoke test (rig, mesh API, 64x64 render), list engines, probe the MCP port")
+    b.set_defaults(fn=cmd_blender_doctor)
+    b = bsub.add_parser("rig", help="write a .blend that contains the Epic Fight biped armature EF_Biped")
+    b.add_argument("--out", required=True, help="output .blend"); b.add_argument("--name", default="EF_Biped")
+    b.set_defaults(fn=cmd_blender_rig)
+    b = bsub.add_parser("import", help="EF mesh bundle / EF mesh JSON -> .blend (rig, weights, UVs, normals, material slots, texture)")
+    b.add_argument("source", help="bundle directory, <id>.efmesh.json, or any EF mesh JSON (generated boss mesh, EF biped.json)")
+    b.add_argument("--out", required=True, help="output .blend"); b.add_argument("--texture", help="PNG shown on every material (Closest interpolation)")
+    b.add_argument("--name", help="object name (default: the bundle id)"); b.add_argument("--id", help="bundle id when the directory holds several")
+    b.add_argument("--no-custom-normals", action="store_true", help="do not apply the JSON normals as custom split normals")
+    b.set_defaults(fn=cmd_blender_import)
+    b = bsub.add_parser("export", help=".blend -> EF mesh bundle (<id>.efmesh.json + <id>.meshmeta.json), validated")
+    b.add_argument("blend"); b.add_argument("--out", required=True, help="output directory")
+    b.add_argument("--object", help="mesh object name (default: the one skinned to the rig)"); b.add_argument("--rig", help="armature object name (default EF_Biped)")
+    b.add_argument("--id", help="bundle id (default: the object name)"); b.add_argument("--max-influences", type=int, help="joint influences per vertex (default 4)")
+    b.add_argument("--strict", action="store_true", help="unweighted vertices are an error instead of a warning")
+    b.set_defaults(fn=cmd_blender_export)
+    b = bsub.add_parser("view", help="render the textured model in Blender from several angles, posed (BlenderView)")
+    from . import blenderview  # stdlib only; owns its arguments and prints its own JSON result
+    blenderview.add_arguments(b)
+    b.set_defaults(fn=blenderview.run_view)
     return p
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    from . import blender as _blender
+    previous = _blender._EXPLICIT
+    _blender.set_explicit(getattr(args, "blender", None) or None)  # per invocation: the --blender of one in-process call must not leak into later ones
     try:
         return args.fn(args)
     except BossForgeError as e:
         return _fail([e.err])
+    finally:
+        _blender.set_explicit(previous)

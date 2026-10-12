@@ -11,7 +11,7 @@ import math
 import zlib
 from typing import Dict, List, Optional, Tuple
 
-from . import sprites
+from . import holdpose, sprites
 from .pngio import Canvas, hconcat, write_png
 from .spec import BossForgeError, GenFile, RES_ID_RE, Err, data, validate_recipe
 
@@ -114,13 +114,17 @@ def _rotate(rx: float, ry: float, rz: float, v):
     return x, y, z
 
 
-def display_json(category: str, visual_scale: float) -> dict:
+def display_json(category: str, visual_scale: float, appearance: Optional[dict] = None, hold: Optional[dict] = None) -> dict:
     """`display` block for the four hand perspectives with the parent's X/Y scale multiplied by `visual_scale`.
 
     Minecraft applies translate -> rotate -> scale, so shrinking the model about its centre would drag the grip away
     from the hand. The translation is moved by R * ((1-s) * S * g), g being the sprite's grip point relative to the
     model centre, which keeps the grip exactly where the parent model puts it. Left-hand entries are first converted
     to the transform Minecraft really applies (it negates their Y/Z rotation and X translation) and converted back.
+
+    Staff shapes (spear category) replace the parent's `thirdperson_righthand` entry: Epic Fight's spear transform lays
+    the sprite diagonal across the hold_spear pose, a staff must stand upright; `holdpose.staff_display` solves it
+    (`hold` = the weapon's `hold` knobs, `visual_scale` = staff length in wielder heights).
     """
     gx, gy = sprites.hold_point(category)
     s = float(visual_scale)
@@ -140,28 +144,35 @@ def display_json(category: str, visual_scale: float) -> dict:
             "translation": [round(max(-80.0, min(80.0, v)), 4) + 0.0 for v in (tx, ty, tz)],
             "scale": [round(min(4.0, sc[0] * s), 4), round(min(4.0, sc[1] * s), 4), float(sc[2])],
         }
+    if sprites.is_staff(category, appearance):
+        out["thirdperson_righthand"] = holdpose.staff_display(appearance, s, hold)
     return out
 
 
 def effective_visual_scale(w: dict, boss_scale: Optional[float] = None, is_main: bool = False) -> float:
     """Explicit `visual_scale` wins. Otherwise the boss's main weapon shrinks by 1/sqrt(mesh scale) once the mesh
-    scale exceeds 1.2 (clamped 0.7-1.0; the mesh scale already enlarges whatever the boss holds). Else 1.0."""
+    scale exceeds 1.2 (clamped 0.7-1.0; the mesh scale already enlarges whatever the boss holds). Else 1.0.
+    Staffs never shrink: their held size is solved relative to the wielder (`holdpose.staff_display`)."""
     explicit = w.get("visual_scale")
     if explicit is not None:
         return float(explicit)
+    if sprites.is_staff(w.get("category"), w.get("appearance")):
+        return 1.0
     if is_main and boss_scale is not None and boss_scale > 1.2:
         return max(0.7, min(1.0, round(1.0 / math.sqrt(boss_scale), 2)))
     return 1.0
 
 
-def model_json(category: str, mod_id: str, item_id: str, visual_scale: float = 1.0) -> dict:
+def model_json(category: str, mod_id: str, item_id: str, visual_scale: float = 1.0, appearance: Optional[dict] = None,
+               hold: Optional[dict] = None) -> dict:
     """Item model JSON for a weapon: handheld/dagger parent models or Epic Fight's separate_transforms.
 
     A `visual_scale` other than 1.0 adds a hand-perspective `display` block (top level for plain parents, inside
-    `base` for separate_transforms so gui/fixed/ground keep the parent's look)."""
+    `base` for separate_transforms so gui/fixed/ground keep the parent's look). Staff shapes always get one."""
     m = _cat(category)["model"]
     tex = "%s:item/%s" % (mod_id, item_id)
-    display = display_json(category, visual_scale) if abs(float(visual_scale) - 1.0) > 1e-9 else None
+    staff = sprites.is_staff(category, appearance)
+    display = display_json(category, visual_scale, appearance, hold) if staff or abs(float(visual_scale) - 1.0) > 1e-9 else None
     if m["kind"] in ("handheld", "epic_parent"):
         out = {"parent": m["parent"]}
         if display:
@@ -179,6 +190,37 @@ def model_json(category: str, mod_id: str, item_id: str, visual_scale: float = 1
         "base": base,
         "perspectives": {"gui": gui, "fixed": dict(gui), "ground": dict(gui)},
     }
+
+
+def audit_staff_model(model: object, w: dict) -> List[Tuple[str, str]]:
+    """Problems with the held-item transform of a staff's generated item model, as (qa code, message); [] for other weapons.
+
+    A model generated before staffs got their own transform parents `epicfight:item/spear` unchanged: Epic Fight's
+    hold_spear pose then lays the sprite sideways across the body (the symptom: a giant horizontal staff). This
+    recomputes where the right-hand display puts the sprite axis and compares it with what the weapon's `hold`
+    asks for."""
+    if not sprites.is_staff(w.get("category"), w.get("appearance")):
+        return []
+    base = model.get("base") if isinstance(model, dict) else None
+    entry = ((base or {}).get("display") or {}).get("thirdperson_righthand")
+    keys = ("rotation", "translation", "scale")
+    if not isinstance(entry, dict) or any(not isinstance(entry.get(k), list) or len(entry[k]) != 3 for k in keys):
+        return [("qa_staff_no_display", "the staff's item model has no `base.display.thirdperson_righthand` transform, Epic Fight's spear transform "
+                 "would lay it sideways in the hand; rerun add-boss")]
+    if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for k in keys for v in entry[k]):
+        return [("qa_staff_bad_display", "the staff's right-hand display holds a non-numeric or non-finite value")]
+    if any(abs(v) > 4.0 for v in entry["scale"]) or any(abs(v) > 80.0 for v in entry["translation"]):
+        return [("qa_staff_bad_display", "the staff's right-hand display exceeds Minecraft's clamps (scale +-4, translation +-80); Minecraft would silently clip it")]
+    geo = sprites.staff_geometry(w.get("appearance"))
+    hold = w.get("hold") or {}
+    want = holdpose._target_axis(float(hold.get("lean", holdpose.DEFAULT_LEAN)), float(hold.get("side", 0.0)))
+    got = holdpose.direction(entry, geo["butt"], geo["tip"])
+    off = math.degrees(math.acos(max(-1.0, min(1.0, sum(a * b for a, b in zip(got, want))))))
+    if off > 5.0:
+        return [("qa_staff_lies_flat", "in the hold_spear pose the staff's sprite axis is %.0f degrees away from the %.0f/%.0f degree lean the weapon asks "
+                 "for (Epic Fight's own spear transform lays it sideways); rerun add-boss" % (off, float(hold.get("lean", holdpose.DEFAULT_LEAN)),
+                                                                                         float(hold.get("side", 0.0))))]
+    return []
 
 
 def _ef_block(src: dict, defaults: dict) -> dict:
@@ -274,7 +316,7 @@ def _weapon_files(w: dict, mod: str, essence_ref: str, palette: Optional[dict],
     if cat["model"]["kind"] == "separate_transforms":
         gui = sprite.downsampled(2)
         files.append(GenFile(base + "textures/item/%s_gui.png" % wid, _png(gui), "texture"))
-    files.append(GenFile(base + "models/item/%s.json" % wid, _dump(model_json(category, mod, wid, visual_scale)), "json"))
+    files.append(GenFile(base + "models/item/%s.json" % wid, _dump(model_json(category, mod, wid, visual_scale, w.get("appearance"), w.get("hold"))), "json"))
     files.append(GenFile(RES + "data/%s/capabilities/weapons/%s.json" % (mod, wid), _dump(capability_json(w)), "json"))
     ob = w.get("obtain") or {}
     if ob.get("craft"):

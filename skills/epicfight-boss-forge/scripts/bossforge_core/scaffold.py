@@ -625,7 +625,10 @@ def add_boss(spec_path, project_dir, cache_dir=None, offline: bool = False, forc
         if gen is skin.generate_with_report:
             report = out[2]
     rel_spec = "bossforge/bosses/%s.boss.json" % n["id"]
-    spec_bytes, ref_files = _stage_references(raw_bytes, spec_path)
+    from . import meshsrc
+    spec_bytes, mesh_files = meshsrc.stage_bundle(raw_bytes, spec_path)  # a `mesh` block: bundle -> bossforge/models/<id>.*
+    spec_bytes, ref_files = _stage_references(spec_bytes, spec_path)
+    files.extend(mesh_files)
     files.extend(ref_files)
     files.append(_spec_copy(rel_spec, spec_bytes))
     man["bosses"][n["id"]] = {"spec": rel_spec, "class": javagen.boss_class(n["id"])}

@@ -3,7 +3,10 @@
 Offline checks cannot prove a boss renders: Epic Fight picks the mesh from the mobpatch `renderer`, so a wrong
 renderer silently draws the stock mesh with the custom texture scrambled across it. This runs the project in a
 throwaway copy (`./gradlew runClient`) with a generated test class that joins a template world, summons the boss
-in open air, takes screenshots from five angles and prints which mesh Epic Fight used (`RT_MESH`).
+in open air and takes 17 screenshots: three close-ups that show Epic Fight's target outline, marker and health bar (on,
+after damage, switched off), five clean body views (front, front right, front left, back, close-up), five views of the
+held weapon, and the weapon in a player's hand (Epic Fight and vanilla mode, third and first person). It prints which mesh Epic Fight used (`RT_MESH`), the boss's glow/team state,
+the animations Epic Fight plays and Epic Fight's joint matrices for the hand (`RT_POSE`).
 """
 from __future__ import annotations
 
@@ -23,6 +26,12 @@ from . import javagen
 from .spec import BossForgeError, load, normalize
 
 WORLD_NAME = "rendertest"
+# view names in the order of the template's VIEWS; the template prints `RT_VIEW <n> <name>` per shot, this is the fallback
+DEFAULT_VIEW_NAMES = ("outline-on", "outline-hurt", "outline-off", "front", "front-right", "front-left", "back", "close-up",
+                      "hand-front", "hand-side", "hand-back", "hand-3q", "hand-3q-high",
+                      "player-front", "player-back", "player-vanilla-front", "player-first-person")
+PLAYER_PREFIX = "player-"
+MIN_SHOTS = 5
 RUN_PROPERTIES = (
     "args '--quickPlaySingleplayer', '%s', '--width', '640', '--height', '360'" % WORLD_NAME,
     "jvmArgs '-Xmx2G'",
@@ -80,6 +89,15 @@ def expected_mesh_vertices(project: Path, mod_id: str, boss_id: str, derived: di
     return len(json.loads(f.read_text(encoding="utf-8"))["vertices"]["positions"]["array"]) // 3
 
 
+_GLOW = re.compile(r"^RT_GLOW view=(\d+) glowing=(\w+) glowTag=(\w+) team=(\S+) highlight=(\w+)", re.M)
+
+
+def parse_glow(text: str) -> List[dict]:
+    """The per-shot `RT_GLOW` lines: vanilla glow flag/tag, scoreboard team and Epic Fight's target-highlight verdict."""
+    return [{"view": int(v), "glowing": g == "true", "glow_tag": t == "true", "team": team, "highlight": h == "true"}
+            for v, g, t, team, h in _GLOW.findall(text)]
+
+
 def run(project, boss_id: Optional[str] = None, out_dir=None, timeout: int = 900, keep: bool = False) -> dict:
     root = Path(project)
     man = mf.load(root)
@@ -108,7 +126,7 @@ def run(project, boss_id: Optional[str] = None, out_dir=None, timeout: int = 900
         test_dir = pkg_dir / "rendertest"
         test_dir.mkdir(parents=True, exist_ok=True)
         src = javagen.render(javagen.load_template("rendertest", "RenderTest.java.tpl"),
-                             {"PACKAGE": package, "MOD_ID": mod_id, "BOSS_ID": boss_id}, "RenderTest")
+                             {"PACKAGE": package, "MOD_ID": mod_id, "BOSS_ID": boss_id, "WEAPON_ID": n.get("main_weapon") or ""}, "RenderTest")
         (test_dir / "RenderTest.java").write_text(src, encoding="utf-8")
         saves = copy / "run" / "saves" / WORLD_NAME
         saves.mkdir(parents=True, exist_ok=True)
@@ -135,10 +153,11 @@ def run(project, boss_id: Optional[str] = None, out_dir=None, timeout: int = 900
         out.mkdir(parents=True, exist_ok=True)
         for old in out.glob("*.png"):
             old.unlink()
-        names = ["front", "front-right", "front-left", "back", "close-up"]
+        logged = {int(i): nm for i, nm in re.findall(r"^RT_VIEW (\d+) (\S+)", text, re.M)}
         saved = []
         for i, s in enumerate(shots):
-            dest = out / ("%s_%s.png" % (boss_id, names[i] if i < len(names) else str(i + 1)))
+            nm = logged.get(i + 1) or (DEFAULT_VIEW_NAMES[i] if i < len(DEFAULT_VIEW_NAMES) else str(i + 1))
+            dest = out / ("%s_%s.png" % (boss_id, nm))
             shutil.copyfile(str(s), str(dest))
             saved.append(str(dest))
         game_log = copy / "run" / "logs" / "latest.log"
@@ -150,11 +169,16 @@ def run(project, boss_id: Optional[str] = None, out_dir=None, timeout: int = 900
         if counts and min(counts) == 0:
             problems.append("the boss entity was missing from the client at %d of %d screenshots (it was not summoned, not tracked or died)"
                             % (sum(1 for c in counts if c == 0), len(counts)))
-        held = re.findall(r"^RT_HELD view=\d+ item=(\S+)", text, re.M)
+        held_all = [(int(v), item) for v, item in re.findall(r"^RT_HELD view=(\d+) item=(\S+)", text, re.M)]
+        held = [item for v, item in held_all if not (logged.get(v) or "").startswith(PLAYER_PREFIX)]
+        player_held = [item for v, item in held_all if (logged.get(v) or "").startswith(PLAYER_PREFIX)]
         want = ("%s:%s" % (mod_id, n["main_weapon"])) if n.get("main_weapon") else None
         if want and held and any(h != want for h in held):
             problems.append("the boss is not holding its main weapon %s (main hand: %s): the weapon item is not registered or finalizeSpawn did not equip it"
                             % (want, held[-1]))
+        if want and player_held and any(h != want for h in player_held):
+            problems.append("the player shots do not show the weapon %s in the player's hand (main hand: %s): `item replace` failed"
+                            % (want, player_held[-1]))
         if timed_out:
             problems.append("timed out after %ds" % timeout)
         if seen is None:
@@ -166,12 +190,21 @@ def run(project, boss_id: Optional[str] = None, out_dir=None, timeout: int = 900
             problems.append("Epic Fight rejected the mobpatch (log: `Can't deserialize mob capability`)")
         if re.search(r"^RT_DONE", text, re.M) is None and not timed_out:
             problems.append("the client exited before finishing the scripted run (see the Gradle output)")
-        if len(saved) < 5:
-            problems.append("only %d of 5 screenshots were taken" % len(saved))
+        if len(saved) < max(MIN_SHOTS, len(logged)):
+            problems.append("only %d of %d screenshots were taken" % (len(saved), max(MIN_SHOTS, len(logged))))
+        glow = parse_glow(text)
+        if any(g["glowing"] or g["glow_tag"] or g["team"] != "null" for g in glow):
+            problems.append("the boss entity is glowing or on a scoreboard team in the client (%s): vanilla would outline it in the team colour; "
+                            "the entity must not set the glowing flag or join a team" % ", ".join(
+                                "view %d glowing=%s tag=%s team=%s" % (g["view"], g["glowing"], g["glow_tag"], g["team"]) for g in glow
+                                if g["glowing"] or g["glow_tag"] or g["team"] != "null"))
+        report = [ln for ln in text.splitlines() if ln.startswith("RT_")]
+        (out / "rt-report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
         tail = "\n".join(text.splitlines()[-40:])
         result = {"ok": not problems, "boss": boss_id, "screenshots": saved, "mesh_positions_seen": seen,
                   "mesh_positions_expected": expected, "seconds": round(time.time() - started),
-                  "entity_counts": counts, "held_items": held, "problems": problems,
+                  "entity_counts": counts, "held_items": held, "player_held_items": player_held, "problems": problems,
+                  "target_highlight": {g["view"]: g["highlight"] for g in glow}, "report": str(out / "rt-report.txt"),
                   "next": ["READ every screenshot and judge it against the boss description before approving",
                            "if `problems` is non-empty fix the cause; see references/render-pipeline.md (symptom table)"]}
         if problems:

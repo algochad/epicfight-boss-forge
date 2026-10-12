@@ -198,10 +198,10 @@ def texture_panel(tex: Canvas, panel_h: int = PANEL_H) -> Canvas:
 
 
 def _used_positions(mesh, keep) -> List[int]:
-    """Sorted indices of the positions of the triangles whose part's region satisfies `keep`."""
+    """Sorted indices of the positions of the triangles whose region satisfies `keep`."""
     used = set()
     for tri in mesh.tris:
-        if keep(mesh.region_of(tri.part)):
+        if keep(mesh.region_of_tri(tri)):
             used.update(tri.p)
     return sorted(used)
 

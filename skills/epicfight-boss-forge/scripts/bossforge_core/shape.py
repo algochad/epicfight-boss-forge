@@ -659,7 +659,11 @@ class ShapeModel:
 
 
 def build_model(n: dict, ctx=None) -> ShapeModel:
-    """Build the mesh, template and EF JSON for a normalized boss spec `n` (uses n["shape"], n["id"], n["mod_id"])."""
+    """Build the mesh, template and EF JSON for a normalized boss spec `n` (uses n["shape"], n["id"], n["mod_id"]).
+    A spec with a `mesh` block (a Blender bundle) is built by `meshsrc.build_model`, which returns the same kind of model."""
+    if isinstance(n.get("mesh"), dict):
+        from . import meshsrc
+        return meshsrc.build_model(n, ctx)
     shape = n.get("shape")
     if not isinstance(shape, dict):
         raise BossForgeError("/shape", "required", "the spec has no shape object")

@@ -1043,6 +1043,10 @@ def plan_for(n: dict) -> Optional[BakePlan]:
     from . import reference
     views = reference.views_for(n)
     cfg = normalize_bake(ref["bake"], list(views))
+    if isinstance(n.get("mesh"), dict):  # imported mesh: `box:<glob>` targets name its groups
+        from . import meshsrc
+        cfg["regions"] = meshsrc.retarget(cfg["regions"])
+        cfg["exclude"] = meshsrc.retarget(cfg["exclude"])
     missing = [v for v in cfg["views"] if v not in views]
     if missing:
         raise BossForgeError("/reference/bake/views", "reference_unknown_view",

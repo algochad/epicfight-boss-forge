@@ -23,7 +23,7 @@ Five inputs must agree. Epic Fight (EF) draws the mesh chosen by the mobpatch `r
 2. `bossforge validate`, then `bossforge shape` (box count, bounds, atlas, warnings) and `bossforge skin` -> READ the five-panel preview. This judges the DESIGN (silhouette, palette, face), not the rendering.
 3. `bossforge add-boss`. It writes the mesh JSON, texture, mobpatch (with the correct renderer), Java, resources, and runs `qa`. `qa` fails when a custom `model` is paired with a preset renderer, when the mesh JSON is structurally invalid, or when the texture size does not match the atlas.
 4. **Compile gate**: `./gradlew --no-daemon compileJava processResources` (JDK 17).
-5. **Render gate** (mandatory when a JDK 17 and a display exist): `bossforge render-test --project DIR [--boss ID]`. It copies the project, adds a throwaway test class, runs `./gradlew runClient`, joins a template world, summons the boss in open air and saves five screenshots (front, front-right, front-left, back, close-up) to `<project>/bossforge/render-test/`. It also prints `mesh_positions_seen` vs `mesh_positions_expected`: if they differ EF drew the wrong mesh. READ all five screenshots and judge them against the user's description. A render-test that did not run (`skipped`, no display or JDK) must be reported as "render not verified".
+5. **Render gate** (mandatory when a JDK 17 and a display exist): `bossforge render-test --project DIR [--boss ID] [--out DIR]`. It copies the project, adds a throwaway test class, runs `./gradlew runClient`, joins a template world, summons the boss in open air and saves 17 screenshots to `<project>/bossforge/render-test/` (about 4 minutes): `outline-on`, `outline-hurt`, `outline-off` (Epic Fight's target guides, section 7), the clean body views `front`, `front-right`, `front-left`, `back`, `close-up` (guides off, GUI hidden), `hand-front`, `hand-side`, `hand-back`, `hand-3q`, `hand-3q-high` (the held weapon from five angles) and, when the boss has a main weapon, `player-front`, `player-back`, `player-vanilla-front`, `player-first-person` (the same weapon in a player's hand). It also prints `mesh_positions_seen` vs `mesh_positions_expected` (if they differ EF drew the wrong mesh), `held_items`, `player_held_items`, `target_highlight` and writes every `RT_*` log line (glow flag, team, animations, joint matrices) to `rt-report.txt` next to the screenshots. READ the screenshots and judge them against the user's description. A render-test that did not run (`skipped`, no display or JDK) must be reported as "render not verified".
 6. Only then ship the jar and tell the user what was verified: renders (screenshots), and what was NOT (attack/stun behavior, long-term animation, balance).
 
 `render-test` needs a display (it opens a 640x360 Minecraft window for about two minutes), JDK 17, network the first time (Gradle downloads Minecraft/Forge/EF), about 2 GB of free RAM. It never touches the real project: it works in a temporary copy and the test class is not shipped.
@@ -57,7 +57,9 @@ Five inputs must agree. Epic Fight (EF) draws the mesh chosen by the mobpatch `r
 | Wrong colors / texture swapped or mirrored | UV origin or atlas mismatch (row 0 must be the top) | regenerate; compare with the skin preview |
 | Boss far bigger or smaller than the hitbox | `attributes.scale` != `size.height / mesh height` | regenerate; `qa` checks it |
 | `held_items` shows `minecraft:air` / render-test problem "not holding its main weapon" | the weapon item is not registered, or `finalizeSpawn` did not run. NOTE `/summon <id> x y z {NBT}` with any NBT SKIPS `finalizeSpawn` (vanilla only calls it for a bare summon), so test and quest commands must summon without NBT | summon without NBT (render-test does), check `BossRegistry` |
-| Held weapon enormous | EF displays held items at 1.5x then multiplies by the entity scale | weapon `visual_scale` (`weapon-forge.md`) |
+| Held weapon enormous (blades) | EF's parent models display held items at 1.5x-1.7x and EF multiplies by the entity scale | weapon `visual_scale` (`weapon-forge.md`) |
+| Staff (or any spear shape) held sideways across the body, giant, orb on the wielder's right | the staff uses `epicfight:item/spear`, whose hand transform lays the diagonal sprite along the hold_spear pose (weapon-forge.md, "How Epic Fight puts an item in a hand") | the generator writes its own `thirdperson_righthand` for staff shapes; `bossforge qa` reports `qa_staff_lies_flat` for projects generated before; regenerate with `add-boss`, tune with weapon `hold` |
+| Red outline around the boss, a small red marker and a bar above its head | Epic Fight's target guides for whatever is under the player's crosshair, not the boss entity (section 7) | nothing to fix in the mod; the player can switch them off (section 7) |
 | Everything renders in the GUI but nothing in game | the resource pack path for the mesh is wrong: the file must be `assets/<mod>/animmodels/entity/<id>.json` for model `<mod>:entity/<id>` | regenerate |
 
 ## 6. Debug recipes (maintainers)
@@ -66,3 +68,35 @@ Five inputs must agree. Epic Fight (EF) draws the mesh chosen by the mobpatch `r
 - Dev client mixin remap: EF ships an SRG refmap, so the `client` run needs `property 'mixin.env.remapRefMap', 'true'` and `property 'mixin.env.refMapRemappingFile', "${projectDir}/build/createSrgToMcp/output.srg"`, otherwise EF's mixins fail to apply and the client crashes.
 - Screenshots: `net.minecraft.client.Screenshot.grab(mc.gameDirectory, mc.getMainRenderTarget(), consumer)` writes to `run/screenshots/`. Hide the GUI (`mc.options.hideGui = true`) and fly the camera with `/tp @s x y z yaw pitch` (creative flying) around a `NoAI` `NoGravity` boss summoned in open air.
 - The compute-shader skinning path (GPU) and the CPU path use the same pose matrices; the shader multiplies `poses[joint]` by a per-part transform that is identity for these meshes.
+
+## 7. The red outline, the red marker and the floating bar (Epic Fight's target guides)
+
+**Symptom** (seen in game and in the first render-test screenshots): a red outline hugs the boss's silhouette, a small red marker hovers above its head with a bar below it. It appears when the player looks straight at the boss and is gone when the player looks elsewhere.
+
+**Cause: Epic Fight's own target highlight, indicator and health bar. All three are normal Epic Fight client behaviour for every mob, not something the boss entity does.** Read from the EF 20.14.17 classes and proven in a dev client:
+
+| Part | What draws it | When | Config (`config/epicfight-client.toml`, section `[ingame]`) |
+|---|---|---|---|
+| Red outline | `yesman.epicfight.mixin.client.MixinLevelRenderer` asks `EpicFightCameraAPI.shouldHighlightTarget(entity)` per entity and, if true, draws it through vanilla's `OutlineBufferSource` in colour `ClientConfig.packedTargetOutlineColor` | the entity is the camera's `focusingEntity`: the living entity under the crosshair within Epic Fight's pick range, or the lock-on target; `enable_target_entity_guide` is on; the entity patch's `isOutlineVisible` is true (the default) | `enable_target_entity_guide = true`; colour `target_outline_color = 0.0` (a hue from 0.0 to 1.0; 0.0 is red) |
+| Red marker | `TargetIndicator` draws `BATTLE_ICON` over the player's current attack target | `show_target_indicator` on, target alive and within 20 blocks, the GUI visible | `show_target_indicator = true` |
+| Bar | `HealthBar` (the faction's bar texture) | `health_bar_show_option` `HURT` (the default): the entity is damaged or has potion effects; `TARGET`, `TARGET_AND_HURT`: also when targeted; entities in the `forge:bosses` entity type tag are skipped; the GUI must be visible | `health_bar_show_option = "HURT"` (`NONE` hides it) |
+
+The marker and bar are drawn in `RenderEngine$Events.renderLivingEvent` only when `Options.hideGui` is false and the Epic Fight game rule `disableEntityUI` is false.
+
+**Evidence** (`bossforge render-test`, screenshots `outline-on`, `outline-hurt`, `outline-off` and the `RT_GLOW` lines of `rt-report.txt`):
+
+- the boss entity is not glowing: every shot logs `glowing=false glowTag=false team=null`, so vanilla's glow outline (which takes the team colour, white without a team) is not involved;
+- `outline-on`: the crosshair is on the boss, `RT_GLOW highlight=true focus=<the boss>`, the screenshot shows the red outline and the marker; `outline-hurt` (the boss took 4 damage): the same plus the red bar; `outline-off`: the three EF settings flipped at runtime (`ClientConfig.enableTargetEntityGuide`, `showTargetIndicator`, `healthBarVisibility = NONE`) with the same camera: `highlight=false`, no outline, marker or bar;
+- in the clean body and hand views (settings off, GUI hidden) nothing is drawn.
+
+**What the user can change** (client side only; the generator cannot and should not):
+
+- in game: Epic Fight's graphics options screen (Target Indicator, Health Bar, Target Entity Guide, outline colour); or edit `config/epicfight-client.toml`: `show_target_indicator = false`, `health_bar_show_option = "NONE"`, `enable_target_entity_guide = false` (or move `target_outline_color` to another hue);
+- per world or server: `/gamerule disableEntityUI true` removes the floating health bars and target markers of every entity (the outline is separate);
+- tagging a boss entity type with `forge:bosses` (`data/forge/tags/entity_types/bosses.json`) removes only Epic Fight's floating bar for it, which is redundant next to the vanilla boss bar at the top of the screen. The generator does not write this tag today.
+
+The bar's texture comes from the boss's mobpatch `faction` (`Faction.healthBarTexture/healthBarIndex` in `HealthBar`): in the screenshots the Nightingale bar (faction `illager`) is grey and King Arthur's red, matching what the user saw.
+
+## 8. Reading the render-test report
+
+`rt-report.txt` holds one block per screenshot: `RT_VIEW` (name), `RT_ENTITY`, `RT_GLOW` (glow flag, team, EF highlight verdict, the three EF guide settings), `RT_BODY` (position, yaw), `RT_ANIM` (the living animations EF plays), `RT_MOTION` (current living/composite motion), `RT_CAP` (the weapon capability EF found), `RT_POSE` (EF's own 4x4 pose matrices of Root, Chest, Head, Tool_R, Tool_L: row-major as EF stores them, translation in the last row, columns of the rotation = rows of the printed block), `RT_PLAYER` (mode, camera) and `RT_HELD`. `RT_POSE` is how the held-item maths in `holdpose.py` was checked: the Tool_R matrix of the idle boss agrees with the stored hand frame to 0.005 blocks. Epic Fight shares one armature per rig, so the matrices printed for a vanilla-mode player are the last EF-rendered entity's (the boss's).

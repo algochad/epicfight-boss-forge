@@ -1,0 +1,351 @@
+{
+ "ok": true,
+ "id": "nightingale",
+ "triangles": 9732,
+ "vertices": 5408,
+ "atlas": 1024,
+ "texel_scale": 1.0,
+ "density_texels_per_block": {
+  "boots": {
+   "min": 67.67,
+   "max": 73.84,
+   "mean": 71.54
+  },
+  "hair": {
+   "min": 120.83,
+   "max": 181.25,
+   "mean": 161.17
+  },
+  "leather": {
+   "min": 59.66,
+   "max": 69.05,
+   "mean": 64.67
+  },
+  "ornament": {
+   "min": 80.56,
+   "max": 120.83,
+   "mean": 96.27
+  },
+  "pauldron": {
+   "min": 77.98,
+   "max": 82.86,
+   "mean": 79.92
+  },
+  "ribbon": {
+   "min": 68.0,
+   "max": 192.2,
+   "mean": 109.74
+  },
+  "robe": {
+   "min": 69.71,
+   "max": 73.14,
+   "mean": 71.83
+  },
+  "skin": {
+   "min": 94.94,
+   "max": 230.51,
+   "mean": 118.55
+  },
+  "skirt": {
+   "min": 71.74,
+   "max": 73.13,
+   "mean": 72.29
+  },
+  "tabard": {
+   "min": 55.56,
+   "max": 72.65,
+   "mean": 65.73
+  },
+  "trim": {
+   "min": 77.33,
+   "max": 85.29,
+   "mean": 80.89
+  },
+  "vial_g": {
+   "min": 113.28,
+   "max": 127.94,
+   "mean": 120.62
+  },
+  "vial_r": {
+   "min": 113.28,
+   "max": 127.94,
+   "mean": 120.62
+  },
+  "vial_v": {
+   "min": 113.28,
+   "max": 127.94,
+   "mean": 120.62
+  },
+  "wing_a": {
+   "min": 62.5,
+   "max": 100.0,
+   "mean": 79.69
+  },
+  "wing_b": {
+   "min": 54.62,
+   "max": 104.89,
+   "mean": 83.57
+  },
+  "wing_c": {
+   "min": 67.16,
+   "max": 93.29,
+   "mean": 77.34
+  },
+  "wing_d": {
+   "min": 66.42,
+   "max": 90.62,
+   "mean": 77.34
+  }
+ },
+ "weights": {
+  "vertices": 5408,
+  "unweighted": 0,
+  "max_influences": 3,
+  "min_total": 0.9999989718198776,
+  "max_total": 1.0000010132789612
+ },
+ "export": {
+  "ok": true,
+  "triangles": 9732,
+  "positions": 5414,
+  "uvs": 9015,
+  "normals": 3904,
+  "groups": [
+   "skin",
+   "hair",
+   "robe",
+   "skirt",
+   "tabard",
+   "trim",
+   "boots",
+   "leather",
+   "vial_g",
+   "vial_v",
+   "vial_r",
+   "pauldron",
+   "ornament",
+   "ribbon",
+   "wing_a",
+   "wing_b",
+   "wing_c",
+   "wing_d"
+  ],
+  "max_influences": 3,
+  "height": 1.8269,
+  "bounds": {
+   "min": [
+    -0.9248,
+    -0.2462,
+    0.0
+   ],
+   "max": [
+    0.8866,
+    0.2338,
+    1.8269
+   ]
+  },
+  "facing": {
+   "verdict": "forward",
+   "foot_offset_y": 0.1087,
+   "samples": 8
+  },
+  "check_mesh_json": [],
+  "errors": [],
+  "warnings": [
+   {
+    "code": "triangulated",
+    "message": "4686 faces are not triangles (quads/ngons) and were triangulated on export",
+    "count": 4686
+   }
+  ],
+  "influence_histogram": {
+   "1": 4568,
+   "2": 656,
+   "3": 184
+  },
+  "triangles_by_part": {
+   "head": 1595,
+   "hat": 1,
+   "torso": 7219,
+   "jacket": 1,
+   "rightArm": 260,
+   "leftArm": 260,
+   "rightLeg": 199,
+   "leftLeg": 199,
+   "rightSleeve": 1,
+   "leftSleeve": 1,
+   "rightPants": 1,
+   "leftPants": 1
+  }
+ },
+ "files": [
+  "nightingale.efmesh.json",
+  "nightingale.meshmeta.json"
+ ],
+ "bundle_weights": {
+  "positions": 5414,
+  "without_weights": 0,
+  "max_influences": 3,
+  "min_total": 0.9999999999999999,
+  "max_total": 1.0,
+  "joints_used": 14
+ },
+ "poke_through": {
+  "rest": {
+   "legs": {
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 2458
+   },
+   "arms": {
+    "inside": 3,
+    "max_depth": 0.0041,
+    "samples": 38306
+   }
+  },
+  "right_leg_forward_60": {
+   "legs": {
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 2458
+   },
+   "arms": {
+    "inside": 3,
+    "max_depth": 0.0041,
+    "samples": 38306
+   }
+  },
+  "right_leg_back_60": {
+   "legs": {
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 2458
+   },
+   "arms": {
+    "inside": 3,
+    "max_depth": 0.0041,
+    "samples": 38306
+   }
+  },
+  "left_leg_forward_60": {
+   "legs": {
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 2458
+   },
+   "arms": {
+    "inside": 3,
+    "max_depth": 0.0041,
+    "samples": 38306
+   }
+  },
+  "legs_split_60": {
+   "legs": {
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 2458
+   },
+   "arms": {
+    "inside": 3,
+    "max_depth": 0.0041,
+    "samples": 38306
+   }
+  },
+  "legs_out_30": {
+   "legs": {
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 2458
+   },
+   "arms": {
+    "inside": 3,
+    "max_depth": 0.0041,
+    "samples": 38306
+   }
+  },
+  "knee_bend_60": {
+   "legs": {
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 2458
+   },
+   "arms": {
+    "inside": 3,
+    "max_depth": 0.0041,
+    "samples": 38306
+   }
+  },
+  "arms_forward_60": {
+   "legs": {
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 2458
+   },
+   "arms": {
+    "inside": 16,
+    "max_depth": 0.0035,
+    "samples": 38306
+   }
+  },
+  "arms_side_60": {
+   "legs": {
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 2458
+   },
+   "arms": {
+    "inside": 23,
+    "max_depth": 0.0105,
+    "samples": 38306
+   }
+  },
+  "arms_back_20": {
+   "legs": {
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 2458
+   },
+   "arms": {
+    "inside": 1801,
+    "max_depth": 0.0492,
+    "samples": 38306
+   }
+  },
+  "arms_back_45": {
+   "legs": {
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 2458
+   },
+   "arms": {
+    "inside": 3786,
+    "max_depth": 0.0826,
+    "samples": 38306
+   }
+  },
+  "head_turn_40": {
+   "legs": {
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 2458
+   },
+   "arms": {
+    "inside": 22,
+    "max_depth": 0.0053,
+    "samples": 38306
+   }
+  },
+  "torso_twist_30": {
+   "legs": {
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 2458
+   },
+   "arms": {
+    "inside": 147,
+    "max_depth": 0.0267,
+    "samples": 38306
+   }
+  }
+ }
+}

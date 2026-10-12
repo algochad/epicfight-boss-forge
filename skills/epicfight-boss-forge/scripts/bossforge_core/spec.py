@@ -168,8 +168,8 @@ def jstr(s: str) -> str:
 
 
 def load(path) -> dict:
-    """Read a spec file. A spec with a `reference` block also gets `_spec_dir` (the absolute directory of the file) so the
-    relative image paths of the reference views resolve (normalize/check keep it)."""
+    """Read a spec file. A spec with a `reference` or `mesh` block also gets `_spec_dir` (the absolute directory of the file)
+    so the relative image / bundle paths resolve (normalize/check keep it)."""
     p = Path(path)
     try:
         d = json.loads(p.read_text(encoding="utf-8"))
@@ -177,7 +177,7 @@ def load(path) -> dict:
         raise BossForgeError("", "file_not_found", "spec file not found: %s" % p)
     except json.JSONDecodeError as e:
         raise BossForgeError("", "bad_json", "%s: %s" % (p, e))
-    if isinstance(d, dict) and "reference" in d:
+    if isinstance(d, dict) and ("reference" in d or "mesh" in d):
         d["_spec_dir"] = str(p.resolve().parent)
     return d
 
@@ -353,8 +353,12 @@ def normalize_shape(s: dict) -> dict:
 
 
 def shape_model_height(n: dict) -> Optional[float]:
-    """Total height (feet at 0) of the custom mesh, None when the shape cannot be built."""
-    key = (json.dumps(n.get("shape"), sort_keys=True, default=str) + "|" + json.dumps(n["appearance"]["palette"], sort_keys=True)
+    """Total height (feet at 0) of the custom mesh (boxes or imported bundle), None when the model cannot be built."""
+    mesh_key = ""
+    if isinstance(n.get("mesh"), dict):
+        from . import meshsrc
+        mesh_key = json.dumps(n["mesh"], sort_keys=True, default=str) + "|" + repr(meshsrc.stamp(n))
+    key = (json.dumps(n.get("shape"), sort_keys=True, default=str) + "|" + mesh_key + "|" + json.dumps(n["appearance"]["palette"], sort_keys=True)
            + "|" + json.dumps([n.get("reference"), n.get("_spec_dir"), sorted(id(v) for v in (n.get("_views") or {}).values())], sort_keys=True, default=str))
     if key not in _SHAPE_HEIGHT_CACHE:
         try:
@@ -379,6 +383,12 @@ def _validate_shape(errs: List[Err], spec: dict) -> None:
         return
     for e in _shape.validate_shape(normalize_shape(s), spec):
         errs.append(Err("/shape" + e.path, e.code, e.message))
+
+
+def _validate_mesh(errs: List[Err], spec: dict, n: dict) -> None:
+    """`mesh` block (a Blender bundle, see references/skin-forge.md `Painting an imported mesh`): meshsrc owns the rules."""
+    from . import meshsrc
+    errs.extend(meshsrc.validate_mesh(spec.get("mesh"), spec, n))
 
 
 def _validate_reference(errs: List[Err], warns: List[Err], spec: dict) -> None:
@@ -478,10 +488,18 @@ def normalize(spec: dict) -> dict:
     has_weapon = bool(n.get("main_weapon"))
     template = None
     shape_in = n.get("shape")
-    custom = isinstance(shape_in, dict) and n["body"]["template"] in ("auto", "biped")
+    mesh_in = n.get("mesh")
+    custom_mesh = isinstance(mesh_in, dict) and n["body"]["template"] in ("auto", "biped")
+    custom = custom_mesh or (isinstance(shape_in, dict) and n["body"]["template"] in ("auto", "biped"))
     if custom:
         template = "biped"
-        n["shape"] = normalize_shape(shape_in)
+        if custom_mesh:
+            from . import meshsrc
+            n["mesh"] = meshsrc.normalize_mesh(mesh_in)
+            if isinstance(shape_in, dict):
+                n["shape"] = normalize_shape(shape_in)  # both blocks: validate reports mesh_and_shape
+        else:
+            n["shape"] = normalize_shape(shape_in)
     elif n["body"]["template"] in templates or n["body"]["template"] == "auto":
         if _is_num(size.get("height")) and _is_num(size.get("width")) and size.get("height", 0) > 0:
             template = pick_template(n["body"]["template"], size, has_weapon)
@@ -680,6 +698,12 @@ def validate_weapon(errs: List[Err], path: str, w: Any, palette: Optional[dict] 
             _check_range(errs, path + "/appearance/width", ap["width"], 0.7, 1.4)
     if "visual_scale" in w:
         _check_range(errs, path + "/visual_scale", w["visual_scale"], 0.4, 1.5)
+    if "hold" in w:
+        from . import holdpose, sprites  # local imports: both import this module
+        if not sprites.is_staff(w.get("category"), ap if isinstance(ap, dict) else None):
+            errs.append(Err(path + "/hold", "hold_not_applicable", "hold places a staff in the hand and only applies to category spear with shape crystal_staff or orb_staff"))
+        else:
+            errs.extend(Err(p, c, m) for p, c, m in holdpose.check_hold(w["hold"], path + "/hold"))
     for i, e in enumerate(w.get("effects") or []):
         ep = "%s/effects/%d" % (path, i)
         if not isinstance(e, dict) or not isinstance(e.get("effect"), str) or not RES_ID_RE.match(e.get("effect", "")):
@@ -809,8 +833,10 @@ def check(spec: dict) -> Tuple[dict, List[Err], List[Err]]:
                     lo, hi = STAT_RANGES[k]
                     _check_range(errs, "/stats/" + k, v, lo, hi, integer=(k == "max_strikes"))
     _validate_appearance(errs, warns, spec.get("appearance") or {}, n)
-    if "shape" in spec:
+    if "shape" in spec and "mesh" not in spec:
         _validate_shape(errs, spec)
+    if "mesh" in spec:
+        _validate_mesh(errs, spec, n)
     if "reference" in spec:
         _validate_reference(errs, warns, spec)
     # weapons
@@ -880,8 +906,9 @@ def check(spec: dict) -> Tuple[dict, List[Err], List[Err]]:
     warns.extend(Err(**w) for w in d["warnings"])
     if template and d.get("scale") is None:
         if d.get("custom"):
-            if not any(e.path.startswith("/shape") for e in errs):
-                errs.append(Err("/shape", "shape_unbuildable", "the shape could not be built (see shape module errors)"))
+            where = "/mesh" if isinstance(n.get("mesh"), dict) else "/shape"
+            if not any(e.path.startswith(("/shape", "/mesh")) for e in errs):
+                errs.append(Err(where, "shape_unbuildable", "the %s could not be built (see its module errors)" % where[1:]))
         else:
             warns.append(Err("/body/template", "template_unmeasured", "template %s has no measured model_height yet" % template))
     if d.get("custom") and not errs:
@@ -919,6 +946,9 @@ PANEL_SIDES = ("top", "bottom", "left", "right")
 
 def _shape_box_ids(n) -> Optional[List[str]]:
     """Box ids of the custom shape of normalized spec `n`, [] when it has none, None when it does not resolve."""
+    if isinstance(n.get("mesh"), dict):
+        from . import meshsrc
+        return meshsrc.group_names(n)
     if not isinstance(n.get("shape"), dict):
         return []
     try:

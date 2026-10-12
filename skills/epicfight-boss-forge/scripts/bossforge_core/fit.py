@@ -77,8 +77,11 @@ def _hull(points: List[Tuple[float, float]]) -> Poly:
 
 
 def model_polys(model, view: View) -> List[Tuple[str, Poly]]:
-    """In-plane (u, y) convex hull of every box of `model` (a shape.ShapeModel) for this view's projection axis."""
+    """In-plane (u, y) convex hull of every box of `model` (a shape.ShapeModel) for this view's projection axis; an imported
+    mesh (meshsrc.MeshModel) gives one polygon per triangle, named after its group."""
     axis = 0 if view._axis == 0 else 2
+    if hasattr(model, "silhouette_polys"):
+        return model.silhouette_polys(axis)
     out = []
     pos = model.mesh.positions
     for i, b in enumerate(model.boxes):
