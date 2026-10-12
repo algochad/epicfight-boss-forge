@@ -1,10 +1,8 @@
-"""Shared frame of the Nightingale build: reference calibration, parameters, material groups, weight rules.
+"""Shared frame of the Nightingale build: the art pixel grid and texel density, parameters, material groups, weight rules.
 
-The concept sheets are orthographic at 203 px per block (`/tmp/nightingale-ref`, see the spec's `reference` block). The EF biped
-is shorter and wider than the drawn character, so the model is built `REF.S` (< 1) times the size of the drawing: its joints
-(neck 1.514, shoulder 1.394, elbow 1.094, knee 0.386 ...) then sit where the drawing has its neck, shoulder, elbow and knee. The
-fit calibration of the spec is therefore `px_per_block = 203 / S`. All geometry code states measurements in reference PIXELS
-(`REF.x`, `REF.z`, `REF.y` convert them to model blocks) so the numbers can be checked against the sheet directly.
+The reference sheets (`reference.views`, 232 px per block) are drawn at about 0.8 of the EF biped's size, so the rig's joints (neck
+1.514, shoulder 1.394, elbow 1.094, knee 0.386 ...) fall onto the drawing's chin, shoulder, elbow and knee. All geometry code states
+its measurements in ART PIXELS (`px(n)`, 0.0325 block, 1 pixel = 1 texel at the default `texel_density`).
 """
 from __future__ import annotations
 
@@ -19,76 +17,77 @@ if SCRIPTS_BLENDER not in sys.path:
 from bfk import modeling as K  # noqa: E402
 
 
-class _Ref:
-    """Pixel <-> model-block conversion for the three reference views (front/back share the sheet's scale)."""
-    PPB = 203.0                 # pixels per block in the sheets
-    S = 0.84                    # model blocks per sheet block (see module docstring)
-    CX_FRONT, GY_FRONT = 224.5, 516.0   # front view: x px = CX - PPB * x   (character's right = image left)
-    CX_BACK, GY_BACK = 686.0, 515.0     # back view:  x px = CX + PPB * x
-    CX_SIDE, GY_SIDE = 522.0, 512.0     # right-side view: px = CX + PPB * y_storage (face to the image right)
-
-    @property
-    def k(self) -> float:
-        return self.S / self.PPB
-
-    def x(self, px: float) -> float:
-        """Front-view image x -> storage x (character's right = +x)."""
-        return (self.CX_FRONT - px) * self.k
-
-    def xb(self, px: float) -> float:
-        """Back-view image x -> storage x."""
-        return (px - self.CX_BACK) * self.k
-
-    def z(self, py: float) -> float:
-        """Front-view image y -> storage z (height above the soles)."""
-        return (self.GY_FRONT - py) * self.k
-
-    def zb(self, py: float) -> float:
-        return (self.GY_BACK - py) * self.k
-
-    def y(self, px: float) -> float:
-        """Side-view image x -> storage y (forward = +y)."""
-        return (px - self.CX_SIDE) * self.k
-
-    def zs(self, py: float) -> float:
-        return (self.GY_SIDE - py) * self.k
-
-    def d(self, npx: float) -> float:
-        """A length in sheet pixels -> model blocks."""
-        return npx * self.k
-
-    def front(self, px: float, py: float, y: float = 0.0):
-        return (self.x(px), y, self.z(py))
+# --------------------------------------------------------------------------------------- pixel grid and texel density
+# The art is Minecraft pixel art: the head is a cube of 8 x 8 art pixels = 0.5 "art block" (1 art block = 16 art pixels). In the model the
+# head is 0.26 blocks wide, so ONE ART PIXEL = ONE TEXEL = `PIXEL` model blocks and `BLOCK` = 16 pixels = 0.52 model blocks. Geometry
+# goes on this grid (wing steps, feather widths, hem steps, vial sizes: multiples of `PIXEL`, see `px` / `snap`) so every UV island is a
+# whole number of chunky texels. `params["texel_density"]` = texels per ART block (16 -> 1 texel per art pixel, head face 8 x 8);
+# the density in MODEL blocks (what `bossforge skin` reports as `texels_per_block`) is `texel_density / BLOCK` = 30.8 at 16.
+HEAD_W = 0.26                     # model blocks (the drawn head cube is 63 px of the 242 px per model block of the spec's calibration)
+BLOCK = HEAD_W * 2.0              # 1 art block (head cube = 8 art pixels = half of it), in model blocks
+PIXEL = BLOCK / 16.0              # 1 art pixel, in model blocks (0.0325)
 
 
-REF = _Ref()
+def px(n: float = 1.0) -> float:
+    """`n` art pixels in model blocks."""
+    return n * PIXEL
+
+
+def snap(v: float, step: float = 1.0) -> float:
+    """Nearest multiple of `step` art pixels (a coordinate in model blocks goes on the pixel grid)."""
+    return round(v / (step * PIXEL)) * step * PIXEL
+
+# Fixed boxes the other parts clear (storage space, +y = front): the head cube `add_head` builds (hx half width, y0 back, y1 front, z0 chin,
+# z1 top: a true cube of 8 art pixels = HEAD_W, front face at y 0.2069) and the torso shell (back / front surface at the shoulders, collar top).
+HEAD_BOX = (HEAD_W / 2.0, 0.2069 - HEAD_W, 0.2069, 1.4524, 1.4524 + HEAD_W)
+TORSO_BACK_Y = -0.064
+TORSO_FRONT_Y = 0.188
+Z_COLLAR = 1.4235
+
 
 # --------------------------------------------------------------------------------------- material groups (slot names)
-# (group, texels per block). `wing_*` = feather rows from the top row (white) to the long lower flight feathers (violet).
+# (group, density multiplier of `texel_density`): 1.0 = one texel per art pixel; 2.0 = a 32-texel detail group (vials). `wing_*` = feather
+# rows from the top row (white) to the long lower flight feathers (violet). `harness`, `harness_gold`, `glyph`, `laurel` are the groups of
+# the new reference (back apparatus, floating tile, headband); an unused group costs nothing (empty material slot, not in the bundle).
 GROUPS = [
-    ("skin", 96.0), ("hair", 80.0), ("robe", 72.0), ("skirt", 72.0), ("tabard", 72.0), ("trim", 80.0), ("boots", 72.0),
-    ("leather", 64.0), ("vial_g", 128.0), ("vial_v", 128.0), ("vial_r", 128.0), ("pauldron", 80.0), ("ornament", 96.0), ("ribbon", 64.0),
-    ("wing_a", 80.0), ("wing_b", 80.0), ("wing_c", 80.0), ("wing_d", 80.0),
+    ("skin", 1.0), ("hair", 1.0), ("robe", 1.0), ("skirt", 1.0), ("tabard", 1.0), ("trim", 1.0), ("boots", 1.0),
+    ("leather", 1.0), ("vial_g", 2.0), ("vial_v", 2.0), ("vial_r", 2.0), ("pauldron", 1.0), ("ornament", 1.0), ("ribbon", 1.0),
+    ("wing_a", 1.0), ("wing_b", 1.0), ("wing_c", 1.0), ("wing_d", 1.0),
+    ("harness", 1.0), ("harness_gold", 1.0), ("glyph", 1.0), ("laurel", 1.0),
+    ("lace", 1.0), ("rune", 1.0),
 ]
 GROUP_NAMES = [g for g, _ in GROUPS]
+
+
+def group_densities(P: dict) -> dict:
+    """{group: texels per model block} for `K.Model(density=...)`: `texel_density` per art block over `BLOCK`, times the group's
+    multiplier. The head cube is multiplied once more by `face_density` in `nt_body.add_head`."""
+    base = float(P["texel_density"]) / BLOCK
+    return {g: base * mult for g, mult in GROUPS}
+
+
 # preview colours (the painter decides the real texture): sRGB 0..1
 PREVIEW = {
     "skin": (0.95, 0.76, 0.62), "hair": (0.40, 0.23, 0.12), "robe": (0.55, 0.62, 0.78), "skirt": (0.50, 0.58, 0.76), "tabard": (0.82, 0.86, 0.95),
     "trim": (0.20, 0.38, 0.68), "boots": (0.62, 0.67, 0.78), "leather": (0.30, 0.20, 0.12), "vial_g": (0.35, 0.85, 0.55), "vial_v": (0.62, 0.35, 0.85), "vial_r": (0.92, 0.45, 0.60),
     "pauldron": (0.92, 0.94, 0.98), "ornament": (0.90, 0.82, 0.50), "ribbon": (0.92, 0.93, 0.99),
     "wing_a": (0.97, 0.97, 1.00), "wing_b": (0.90, 0.90, 1.00), "wing_c": (0.76, 0.74, 0.98), "wing_d": (0.62, 0.58, 0.95),
+    "harness": (0.55, 0.58, 0.62), "harness_gold": (0.80, 0.66, 0.30), "glyph": (0.70, 0.88, 1.00), "laurel": (0.78, 0.82, 0.88),
+    "lace": (0.88, 0.89, 0.97), "rune": (0.45, 0.95, 1.00),
 }
 
 DEFAULTS = {
-    "atlas": 1024,
-    "margin": 4,
-    "face_density": 2.4,      # head islands: density multiplier (crisp pixel-art face)
+    "atlas": 512,
+    "margin": 2,
+    "texel_density": 16.0,    # texels per ART block (head cube = 0.5 block): 1 texel per art pixel, see the pixel grid above
+    "face_density": 1.0,      # head cube: extra multiplier (1.0 = 8 x 8 texels per face, like the art)
     "wing_density": 1.0,
     "wing_spread": 1.0,
-    "wing_curl": 1.0,
     "skirt_segments": 4,
     "skirt_drop": 0.14,        # blocks below the hip over which the skirt changes from Root to the thighs
-    "skirt_droop": 0.08,       # the hem steps down by this much towards the front slit (sheet: lace tabs, y 405 -> 425)
+    "skirt_droop": 0.065,      # the hem steps down by this much (2 px) towards the front slit
+    "skirt_gap": 5.5,          # half width of the front slit of the skirt wall, in art pixels
+    "lace": True,              # lace frill tabs below the skirt hem
     "tabard_lr": 0.015,        # half width of the strip in the tabard centre where the two thigh weights blend
     "skirt_columns": 7,        # segments around each half of the skirt wall
     "ribbon_segments": 10,

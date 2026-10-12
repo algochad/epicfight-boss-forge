@@ -1,0 +1,10 @@
+; Floating light-blue glyph tile: soft blue patches and a white block on the light tile colour.
+@b #b4cdf2
+@w #ffffff
+.......
+..bb...
+b.www.b
+.....bb
+.bb..bb
+.bb..b.
+.bb....

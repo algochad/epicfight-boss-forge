@@ -1,302 +1,164 @@
-"""Nightingale hair: the brown hair shell over the skin head cube, the bun, the bangs, the side locks, the leaf sprig pins and the two
-white ribbon loops behind the head (the long ribbons that hang down the body are in `nt_ribbons`).
+"""Nightingale head items: brown hair (dome, tall stepped bun, parted bangs, side locks, back curtain), the silver leaf LAUREL with its two
+temple pins, and the pale-blue ribbon LOOPS beside the head. The long ribbons that hang down the body are in `nt_ribbons`.
 
-Every number is a sheet pixel (front view `sheet_ortho_front_back.png` unless "side" = the side view of `sheet_front_side_back.png`, or
-"back") converted through `REF`; heights of the head features always use the front mapping `R.z` (the head bottom is y 165 in all views).
+Everything is on the art pixel grid (`nt_common.px`, 1 px = 1 texel = 0.0325 blocks; the head cube is 8 x 8 x 8 px, `HEAD_BOX`). Numbers
+below are pixels: x from the centre line, y from the head centre (+ = face), z above the chin plane (the cube spans 0..8). They were
+measured on `anatomical_front_back.png` (front + back figure, one art pixel = 6.6 image px there):
 
-    * dome        3 stair-stepped tiers: plateau +-29 px (y 89-91), step +-34 px (y 91-94), full shell +-39 px down to y 112; back wall at
-                  side x 500, front wall at side x 576 (the bangs stand 0.0166 in front of the face cube). Closed solid over the cube top.
-    * C panels    back + side hair from y 112 down to the cube bottom y 165 as C-shaped (U) rings, so nothing lies inside the head cube:
-                  side view back x 500, panel end x 543; down to y 125 the hair reaches the face front, below it the cheek is bare.
-    * fringe      bangs on the face front (0.0126 thick), parted: the face shows through a stepped notch (+-6.5 px at y 112-122, +-10.5 px
-                  down to y 141) and two eye windows (17.5-24 px off centre, y 135-141); full width below y 141 (the painter puts the
-                  face on the skin cube: forehead hidden, eyes at y 135-141).
-    * side locks  front view x 186-193 (|dx| 32-38 px) narrowing to x 191-196 at the tip y 187; side view: strand x 553-561 down to y 163,
-                  x 555-567 to y 177, tip x 566-573 (here 569-574: 0.004 in front of the robe), the upper end is the end of the bangs.
-    * bun         tiered ball behind the crown: side view x 463-500, y 74-135; front / back view +-12 px at the top (y 74) to +-30 px (y 93).
-    * sprig       19 leaf / vine tiles per side (cream + teal squares 5 px = 0.02, side view x 492-573, y 92-129), group `ornament`;
-                  they stand 0.02 off the hair side (front view strip x 180-186).
-    * loops       ring ribbon (8.5 px wide) at each side behind the head: back view x 629-672, y 120-178 (centre |dx| 30.5 px), plane
-                  0.14 behind the face, tilted 16 deg, the outer side bowing forward; the tops tuck into the bun like a tie.
+    * dome          10 px wide (1 px of hair beyond the cube each side), 11 deep (back wall 2 px behind the cube), 3 px above the cube top
+                    (z 8-11): the front view's hair outline is full width up to z 10.5-11.7 (1.79 blocks).
+    * bun           stepped tower on the top-back of the dome: widths 8 / 6 / 4 px at z 11-12 / 12-13 / 13-14 (3 px deep at the top: the 3/4
+                    view), flat top at z 14 = 1.907 blocks (RefStage2: bun top 1.90). The drawing has top row 3 px, then 4.5, 6.4, 8, 9.5 px.
+    * bangs         2 rows tall only (z 6-8: the painted face carries the side-swept hair below, its row 4 holds the eyes), 1 px in front of
+                    the face: |x| 1-4 at z 7-8, |x| 2-4 at z 6-7, a V-shaped parting 2 px wide at the top and 4 px at z 6-7; nothing lower.
+    * side hair     1 px shell on both sides (x 4-5) from the dome down to the shoulder line, back curtain (y -6..-4) down to the collar;
+                    the locks continue 3 px below the chin, standing 0.012 in front of the robe.
+    * laurel        ring of leaf combs round the back and sides at z 6-9 (back view: z 6.5-9.2), 1 px outside the hair (|x| 5-6, y -7..-6):
+                    a mid-height spine with 2-px tines every 3 px (the chevron leaves point away from the back centre), a 2 px gap at the back
+                    centre; at each temple (y 2-3) a 1 x 1 px pin rises to z 12 (front view: pins 6.9-12.3).
+    * loops         C-shaped flat ribbon about 1.3 px wide (the reference's ring ribbon is 0.03-0.035 thick) on each side, in a plane behind the
+                    head (y -6.5): from the laurel corner (z 6.5 px = 1.66 blocks) out to |x| 8 px (z 3) and back in to |x| 5 (z -0.4 px =
+                    1.44 blocks); front view outer half-width 0.252 blocks, back view 0.226-0.231.
 
-Weights: everything on the head follows `Head`; the side locks blend Head -> Chest below the head cube.
-Parameters (P.get): hair_density (UV multiplier, 2.0), hair_hx (shell half width), hair_bun (bun scale about its centre, 1.0),
-loop_scale (ribbon loop size, 1.0), loop_width.
+Weights: everything on the head follows `Head`; the locks and the loops blend Head -> Chest below the chin.
+Parameters (P.get): hair_density (UV multiplier, 1.0), loop_density (1.0), loop_width (px, 1.3), loop_scale (size about the laurel corner, 1.0).
 """
 from __future__ import annotations
 
-import math
+from nt_common import K, PIXEL as U, HEAD_BOX, Z_COLLAR
 
-from nt_common import REF as R, K
+HX, Y0, Y1, Z0, Z1 = HEAD_BOX
+YC = (Y0 + Y1) / 2.0                        # head centre (y)
 
-# ------------------------------------------------------------------------------------------------------------- head cube
-HX_C = R.d(31.5)
-Y0_C, Y1_C = R.y(517), R.y(572)            # cube back / front (+y = face)
-Z0_C = R.z(165)                            # cube bottom
-CLR = 0.004                                # clearance between hair and the skin cube
-
-# ------------------------------------------------------------------------------------------------------------- hair shell
-HAIR_HX = R.d(39.0)                        # shell half width (front view: edge x 186 / 264)
-SHELL_BACK = R.y(500)                      # back wall of the dome (side view x 500)
-SHELL_FRONT = Y1_C + R.d(4.0)              # front wall: side view x 576 (bangs stand 0.0166 off the face)
-Z_TOP = R.z(89)                            # top of the dome (front view y 87-90 plateau)
-Z_DOME_BOT = R.z(112)                      # the dome closes here; the fringe / C panels continue below
-Z_FRINGE_BOT = R.z(141)                    # bottom of the bangs
-Z_SIDE_A = R.z(125)                        # below this the cheek is bare (side view: skin from y 126)
-PANEL_END = R.y(543)                       # the back / side panel ends here (side view x 543)
-BEV = 0.03                                 # plan-view corner chamfer of the shell
-
-# bun tiers (stair-stepped like the sheet silhouette): (y top, y bottom, half width px, side-view back x, side-view front x)
-BUN = [
-    (74.5, 77.5, 12.0, 476, 497),
-    (77.5, 81.5, 15.0, 474, 498),
-    (81.5, 85.0, 18.5, 472, 500),
-    (85.0, 89.0, 22.5, 469, 503),
-    (89.0, 93.0, 27.0, 466, 506),
-    (93.0, 99.0, 30.0, 463.5, 510),
-    (99.0, 118.0, 30.0, 462.5, 510),
-    (118.0, 122.0, 29.0, 465, 510),
-    (122.0, 126.0, 26.0, 468, 509),
-    (126.0, 130.0, 22.0, 472, 508),
-    (130.0, 133.0, 18.0, 477, 507),
-    (133.0, 136.0, 13.0, 481, 506),
+DOME_TOP = 11.0                             # hair dome top (px above the chin plane)
+BACK = -6.0                                 # back wall of the hair (2 px behind the head cube)
+BUN = [  # (z0, z1, half width, y back, y front) in px: the bun tower on the top-back of the dome, flat top at z 14
+    (11.0, 12.0, 4.0, BACK, -2.0),
+    (12.0, 13.0, 3.0, BACK, -3.0),
+    (13.0, 14.0, 2.0, BACK, -3.0),
 ]
-
-# leaf sprig tiles, side-view pixel boxes (x0, y0, x1, y1 inclusive) and kind (c = cream leaf, t = teal square)
-SPRIG = [
-    ("c", 492, 96, 496, 101), ("t", 497, 125, 501, 129), ("c", 503, 119, 507, 124), ("c", 509, 107, 513, 111),
-    ("t", 509, 113, 513, 117), ("c", 509, 119, 513, 120), ("t", 514, 125, 519, 129), ("t", 515, 101, 519, 105),
-    ("t", 515, 113, 520, 117), ("t", 526, 108, 534, 112), ("t", 526, 119, 535, 124), ("t", 537, 114, 545, 119),
-    ("t", 546, 120, 553, 125), ("t", 547, 103, 555, 113), ("c", 557, 115, 566, 119), ("c", 562, 109, 566, 113),
-    ("c", 563, 103, 567, 107), ("c", 568, 92, 572, 102), ("c", 570, 109, 573, 113),
-]
-
-# ribbon loop (back view: centre-line ellipse of the right loop, character's right = image right)
-LOOP_CENTER = (R.d(30.5), R.zb(149))       # (|x|, z) of the loop centre: back view (650, 149) vs the head axis x 681
-LOOP_RX, LOOP_RZ = R.d(17.5), R.d(25.5)    # centre-line radii (outer ring 43 x 58 px, ribbon 8.5 px wide)
-LOOP_TILT = 16.0                           # the top of the loop leans towards the head axis (apex x 657, y 120)
-LOOP_Y = -0.14                             # plane of the loop behind the hair (back wall -0.091) ...
-LOOP_SLOPE = 0.25                          # ... leaning back at the bottom: dy per dz
-LOOP_KX = 0.45                             # ... and bowing forward on the outer side: dy per dx
-LOOP_CELL = R.d(3.4)                       # pixel size of the stair-stepped outline (the sheet's steps are 3-4 px)
-LOOP_THICK = R.d(2.6)                      # ribbon thickness
+BUN_TOP = BUN[-1][1]
+LAUREL_Z = (6, 9)                           # laurel rows (z cells 6, 7, 8); the spine is the middle row
+PIN_TOP = 12.0
+LOOP_Y = -6.5                               # plane of the ribbon loops (centre of their thickness)
+LOOP_ARC = ((6.0, 6.5), (9.0, 3.0), (5.2, -0.4))   # quadratic Bezier (x, z) px of the right loop's centre line
 
 
-# ---------------------------------------------------------------------------------------------------------- shell helpers
-def _hx(P: dict) -> float:
-    return P.get("hair_hx", HAIR_HX)
+def X(a: float) -> float:
+    return a * U
 
 
-def _c_ring(z, hx_o, yb_o, hx_i, yb_i, y_end, b):
-    """Closed U-shaped polygon (open at the front): outer path front-right -> back -> front-left, inner path back again."""
-    bo, bi = b, max(b - (hx_o - hx_i), 0.004)
-    outer = [(hx_o, y_end, z), (hx_o, yb_o + bo, z), (hx_o - bo, yb_o, z), (-hx_o + bo, yb_o, z), (-hx_o, yb_o + bo, z), (-hx_o, y_end, z)]
-    inner = [(-hx_i, y_end, z), (-hx_i, yb_i + bi, z), (-hx_i + bi, yb_i, z), (hx_i - bi, yb_i, z), (hx_i, yb_i + bi, z), (hx_i, y_end, z)]
-    return outer + inner
+def Y(a: float) -> float:
+    return YC + a * U
 
 
-def _loop_plane(P: dict):
-    """(y0, kx, kz, xc, zc): the plane y = y0 + kx (x - xc) + kz (z - zc) of the right loop."""
-    xc, zc = LOOP_CENTER
-    return (P.get("loop_y", LOOP_Y), LOOP_KX, LOOP_SLOPE, xc, zc)
+def Z(a: float) -> float:
+    return Z0 + a * U
 
 
-def loop_centerline(P: dict, n: int = 96):
-    """(x, z) points of the right loop's centre line (a tilted ellipse), closed (the last point is left out)."""
+def bun_top_z() -> float:
+    """World z of the flat top of the bun (what floats above the head clears)."""
+    return Z(BUN_TOP)
+
+
+def _curtain_bottom() -> float:
+    """Bottom of the back curtain / side hair in px: on the collar of the robe (it must not enter the shoulder shell)."""
+    return (Z_COLLAR + 0.003 - Z0) / U
+
+
+def _box(m: K.Model, x0, x1, y0, y1, z0, z1, group, w, dens, skip=()):
+    K.block(m, (X(x0), Y(y0), Z(z0)), (X(x1), Y(y1), Z(z1)), group, w, density=dens, skip=skip)
+
+
+# --------------------------------------------------------------------------------------------------------------------- hair
+def _hair_centre(m: K.Model, dens: float) -> None:
+    """Dome, bun tower and back curtain: boxes symmetric about x = 0."""
+    zb = _curtain_bottom()
+    _box(m, -5, 5, BACK, 5, 8, DOME_TOP, "hair", "Head", dens, skip=("bottom",))
+    for z0, z1, hw, yb, yf in BUN:
+        _box(m, -hw, hw, yb, yf, z0, z1, "hair", "Head", dens, skip=("bottom",))
+    _box(m, -4, 4, BACK, -4, zb, 8, "hair", "Head", dens)
+
+
+def _hair_side(m: K.Model, dens: float) -> None:
+    """Right half (mirrored by the caller): side hair shell, the two bang blocks and the lock in front of the shoulder."""
+    zb = _curtain_bottom()
+    _box(m, 4, 5, BACK, 5, zb, 8, "hair", "Head", dens)                     # side shell, from the dome to the shoulder line
+    _box(m, 1, 4, 4, 5, 7, 8, "hair", "Head", dens)                       # fringe row 1 (z 7-8): 2 px open at the centre parting
+    _box(m, 2, 4, 4, 5, 6, 7, "hair", "Head", dens)                       # fringe row 2 (z 6-7): 4 px open (the V); below z 6 the painted face shows
+    w = K.rule_blend(2, Z(zb), Z(-4.0), "Head", "Chest")
+    _box(m, 4, 5, 4, 5, -3, zb, "hair", w, dens)                          # lock: 3 px below the chin, in front of the robe
+
+
+# --------------------------------------------------------------------------------------------------------------------- laurel
+def _leaf_cell(s: int, row: int) -> bool:
+    """Is cell `row` (0 = bottom, 1 = spine, 2 = top) of laurel column `s` filled: spine everywhere, 2-px tines on columns s % 3 in (0, 1)."""
+    return row == 1 or s % 3 != 2
+
+
+def _laurel_side(m: K.Model, dens: float) -> None:
+    """Right half of the laurel (mirrored by the caller): leaf comb on the back wall (columns s 0-3, x 1-5), corner post (s 4), leaf comb on
+    the side wall (s 5-12, y -6..2) and the pin (s 13) that rises to z 12."""
+    z0, z1 = LAUREL_Z
+    back = {(s, z0 + r) for s in range(0, 4) for r in range(3) if _leaf_cell(s, r)}
+    side = {(s - 5, z0 + r) for s in range(5, 13) for r in range(3) if _leaf_cell(s, r)}
+    K.cell_plate(m, back, "laurel", "Head", origin=(X(1.0), Y(BACK - 0.5), Z0), es=(U, 0.0, 0.0), ez=(0.0, 0.0, U), thickness=U, density=dens)
+    K.cell_plate(m, side, "laurel", "Head", origin=(X(5.5), Y(BACK), Z0), es=(0.0, U, 0.0), ez=(0.0, 0.0, U), thickness=U, density=dens)
+    _box(m, 5, 6, BACK - 1, BACK, z0, z1, "laurel", "Head", dens)       # corner post
+    _box(m, 5, 6, 2, 3, z0, PIN_TOP, "laurel", "Head", dens)            # temple pin: leaf-ring base z 6-9, shaft up to z 12
+
+
+# --------------------------------------------------------------------------------------------------------------------- loops
+def _bezier2(p0, p1, p2, t):
+    a, b = (1.0 - t) ** 2, 2.0 * (1.0 - t) * t
+    c = t * t
+    return (a * p0[0] + b * p1[0] + c * p2[0], a * p0[1] + b * p1[1] + c * p2[1])
+
+
+def loop_centerline(P: dict, n: int = 64):
+    """(x, z) in px of the right loop's centre line (a flat arc), scaled about its top end by `loop_scale`."""
     s = P.get("loop_scale", 1.0)
-    xc, zc = LOOP_CENTER
-    rx, rz = LOOP_RX * s, LOOP_RZ * s
-    cp, sp = math.cos(math.radians(LOOP_TILT)), math.sin(math.radians(LOOP_TILT))
-    pts = []
-    for k in range(n):
-        t = 2.0 * math.pi * k / n
-        u, v = rx * math.cos(t), rz * math.sin(t)
-        pts.append((xc + u * cp - v * sp, zc + u * sp + v * cp))
-    return pts
-
-
-def loop_tail_anchor(P: dict):
-    """Lowest point of the right loop's centre line, on its plane (where the long ribbons leave it): (x, y, z)."""
-    x, z = min(loop_centerline(P), key=lambda p: p[1])
-    y0, kx, kz, xc, zc = _loop_plane(P)
-    return (x, y0 + kx * (x - xc) + kz * (z - zc), z)
+    p0, p1, p2 = LOOP_ARC
+    out = []
+    for k in range(n + 1):
+        x, z = _bezier2(p0, p1, p2, k / float(n))
+        out.append((p0[0] + (x - p0[0]) * s, p0[1] + (z - p0[1]) * s))
+    return out
 
 
 def loop_cells(P: dict):
-    """Pixel cells (i, j) of the right loop: a band of `loop_width` round the centre line on the grid of `LOOP_CELL` (cell (i, j) spans
-    x i..i+1, z j..j+1), cut by a one-cell slot at the lowest point where the ribbon tails leave: a C instead of a closed ring."""
-    c = LOOP_CELL
-    half = P.get("loop_width", R.d(8.5)) / 2.0
+    """Pixel cells (i, j) of the right loop: every cell whose centre is within `loop_width / 2` px of the centre line, plus the cells the
+    line crosses (a band thinner than two cells would otherwise break at the stair steps, and cells that touch only at a corner would
+    be separate floating plates): the result is one 4-connected piece."""
+    half = P.get("loop_width", 1.3) / 2.0
     line = loop_centerline(P)
-    xa, za = min(line, key=lambda p: p[1])
-    xs = [p[0] for p in line]
-    zs = [p[1] for p in line]
-    zc = LOOP_CENTER[1]
+    xs, zs = [p[0] for p in line], [p[1] for p in line]
     cells = set()
-    for i in range(int((min(xs) - half) / c) - 1, int((max(xs) + half) / c) + 2):
-        for j in range(int((min(zs) - half) / c) - 1, int((max(zs) + half) / c) + 2):
-            cx, cz = (i + 0.5) * c, (j + 0.5) * c
-            if min((cx - px) ** 2 + (cz - pz) ** 2 for px, pz in line) <= half * half and not (abs(cx - xa) < 0.9 * c and cz < zc):
+    for i in range(int(min(xs) - half) - 1, int(max(xs) + half) + 2):
+        for j in range(int(min(zs) - half) - 1, int(max(zs) + half) + 2):
+            if min((i + 0.5 - px) ** 2 + (j + 0.5 - pz) ** 2 for px, pz in line) <= half * half + 1e-9:
                 cells.add((i, j))
+    prev = None
+    for px, pz in line:
+        cur = (int(px // 1), int(pz // 1))
+        if prev is not None and prev[0] != cur[0] and prev[1] != cur[1]:   # diagonal step: add the corner cell the line passes nearer
+            a, b = (cur[0], prev[1]), (prev[0], cur[1])
+            cells.add(min((a, b), key=lambda c: (c[0] + 0.5 - px) ** 2 + (c[1] + 0.5 - pz) ** 2))
+        cells.add(cur)
+        prev = cur
     return cells
 
 
-def cell_outlines(cells):
-    """Boundary polygons of a set of grid cells: counter-clockwise (x right, z up) lists of (i, j) corner points, collinear points
-    dropped. Cells touching only at a corner give separate polygons. Raises when the set has a hole."""
-    out = {}
-    for i, j in cells:
-        if (i, j - 1) not in cells:
-            out.setdefault((i, j), []).append((i + 1, j))
-        if (i + 1, j) not in cells:
-            out.setdefault((i + 1, j), []).append((i + 1, j + 1))
-        if (i, j + 1) not in cells:
-            out.setdefault((i + 1, j + 1), []).append((i, j + 1))
-        if (i - 1, j) not in cells:
-            out.setdefault((i, j + 1), []).append((i, j))
-    loops = []
-    while out:
-        start = min(out)
-        loop, cur, d_in = [start], start, None
-        while True:
-            nxt = out[cur]
-            if len(nxt) == 1 or d_in is None:
-                end = nxt[0]
-            else:  # corner contact: take the leftmost turn so each component stays one simple polygon
-                end = max(nxt, key=lambda e: d_in[0] * (e[1] - cur[1]) - d_in[1] * (e[0] - cur[0]))
-            nxt.remove(end)
-            if not nxt:
-                del out[cur]
-            d_in = (end[0] - cur[0], end[1] - cur[1])
-            cur = end
-            if cur == start:
-                break
-            loop.append(cur)
-        corners = [p for k, p in enumerate(loop)
-                   if (p[0] - loop[k - 1][0]) * (loop[(k + 1) % len(loop)][1] - p[1]) != (p[1] - loop[k - 1][1]) * (loop[(k + 1) % len(loop)][0] - p[0])]
-        area = sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(corners, corners[1:] + corners[:1]))
-        if area <= 0:
-            raise ValueError("loop cells enclose a hole")
-        loops.append(corners)
-    return loops
-
-
-# ---------------------------------------------------------------------------------------------------------------- parts
-def _dome(m: K.Model, P: dict, w: str, dens: float) -> None:
-    """Closed stair-stepped cap: plateau (+-29 px, y 87-91), step (+-34 px, y 91-94), then the full shell down to the fringe line."""
-    hx = _hx(P)
-    cy, hy = (SHELL_BACK + SHELL_FRONT) / 2.0, (SHELL_FRONT - SHELL_BACK) / 2.0
-    z_a, z_b = R.z(91.0), R.z(94.0)
-    K.stacked_rects(m, [(Z_TOP, 0.0, cy, hx - R.d(9.5), hy - R.d(5.0)), (z_a, 0.0, cy, hx - R.d(9.5), hy - R.d(5.0))],
-                    "hair", w, bevel=BEV, density=dens)
-    K.stacked_rects(m, [(z_a, 0.0, cy, hx - R.d(5.0), hy - R.d(2.0)), (z_b, 0.0, cy, hx - R.d(5.0), hy - R.d(2.0))],
-                    "hair", w, bevel=BEV, density=dens)
-    K.stacked_rects(m, [(z_b, 0.0, cy, hx, hy), (Z_DOME_BOT, 0.0, cy, hx, hy)], "hair", w, bevel=BEV, density=dens)
-
-
-def _panels(m: K.Model, P: dict, w: str, dens: float) -> None:
-    """Back + side hair as two C-shaped lofts: upper (to the face front, y 112-125) and lower (ends at the cheek, y 125-165)."""
-    hx = _hx(P)
-    hx_i, yb_i = HX_C + CLR, Y0_C - CLR
-    upper = [_c_ring(z, hx, SHELL_BACK, hx_i, yb_i, SHELL_FRONT, BEV) for z in (Z_DOME_BOT, Z_SIDE_A)]
-    K.loft(m, upper, "hair", w, density=dens, cap_up=(0.0, 1.0, 0.0))
-    lower = [_c_ring(Z_SIDE_A, hx, SHELL_BACK, hx_i, yb_i, PANEL_END, BEV),
-             _c_ring(R.z(150), hx - 0.003, SHELL_BACK, hx_i, yb_i, PANEL_END, BEV),
-             _c_ring(Z0_C, hx - 0.012, SHELL_BACK + 0.006, hx_i, yb_i, PANEL_END, BEV)]
-    K.loft(m, lower, "hair", w, density=dens, cap_up=(0.0, 1.0, 0.0))
-
-
-def _fringe(m: K.Model, P: dict, w: str, dens: float) -> None:
-    """Right half of the bangs (mirrored by the caller): four stepped blocks leaving the parted face window."""
-    y0, y1 = Y1_C + CLR, SHELL_FRONT
-    xs = lambda px: R.d(px)  # noqa: E731 - |dx| in px -> |x|
-    blocks = [
-        (xs(24.0), HX_C + CLR, Z_FRINGE_BOT, Z_DOME_BOT),            # outer block, down to the lower hem
-        (xs(6.5), xs(24.0), R.z(122), Z_DOME_BOT),                   # upper part of the fringe, notch +-6.5 px
-        (xs(10.5), xs(24.0), R.z(135), R.z(122)),                    # middle part, notch +-10.5 px, above the eye window
-        (xs(10.5), xs(17.5), Z_FRINGE_BOT, R.z(135)),                    # strand between face window and eye window
-    ]
-    for xa, xb, za, zb in blocks:
-        K.block(m, (xa, y0, za), (xb, y1, zb), "hair", w, density=dens)
-
-
-def _lock(m: K.Model, P: dict, dens: float) -> None:
-    """Right side lock beside the cheek and in front of the shoulder (side view: strand x 553-561 to y 163, then x 555-567, tip x 566-573
-    at y 187 - moved 4 px forward onto the robe front; front view x 186-193 narrowing to x 191-196 at the tip), then mirrored. Upper block = the end of the bangs."""
-    xi, xo = HX_C + CLR, _hx(P)
-    K.block(m, (xi, R.y(553), R.z(146)), (xo, SHELL_FRONT, Z_SIDE_A), "hair", "Head", density=dens)
-    stops = [  # (y px, x in, x out, y back px, y front px); below the robe top (y 172) the lock lies on the robe front (y 0.188)
-        (146, xi, xo, 553, 561),
-        (163, xi, xo, 553, 561),
-        (166, xi, xo, 555, 567),
-        (170, xi, xo - 0.002, 558, 571),
-        (173, xi - 0.004, xo - 0.006, 569, 574),
-        (180, xi - 0.008, xo - 0.012, 569, 574),
-        (187, xi - 0.012, xo - 0.021, 570, 574),
-    ]
-    specs = [(R.z(yp), (a + b) / 2.0, (R.y(yb) + R.y(yf)) / 2.0, (b - a) / 2.0, (R.y(yf) - R.y(yb)) / 2.0) for yp, a, b, yb, yf in stops]
-    w = K.rule_blend(2, Z0_C + 0.02, Z0_C - 0.08, "Head", "Chest")
-    K.stacked_rects(m, specs, "hair", w, density=dens)
-
-
-def _bun(m: K.Model, P: dict, w: str, dens: float) -> None:
-    sc = P.get("hair_bun", 1.0)
-    zc = R.z(104)
-    for yt, yb, hxp, xb, xf in BUN:
-        z0, z1 = zc + (R.z(yb) - zc) * sc, zc + (R.z(yt) - zc) * sc
-        K.block(m, (-R.d(hxp) * sc, R.y(xb), z0), (R.d(hxp) * sc, R.y(xf), z1), "hair", w, density=dens)
-
-
-def _bun_hx(z: float) -> float:
-    for yt, yb, hxp, _, _ in BUN:
-        if R.z(yb) <= z <= R.z(yt):
-            return R.d(hxp)
-    return R.d(BUN[-1][2])
-
-
-def _sprig(m: K.Model, P: dict) -> None:
-    """Cream / teal leaf tiles on the right side of the head (mirrored by the caller)."""
-    hx = _hx(P)
-    thick = R.d(5.0)
-    for kind, x0, y0, x1, y1 in SPRIG:
-        ya, yb = R.y(x0), R.y(x1 + 1)
-        za, zb = R.z(y1 + 1), R.z(y0)
-        yc, zc = (ya + yb) / 2.0, (za + zb) / 2.0
-        x_in = hx - 0.003 if yc > SHELL_BACK else max(_bun_hx(zc) - 0.003, 0.05)   # the two rearmost tiles sit on the bun
-        K.block(m, (x_in, ya, za), (x_in + thick, yb, zb), "ornament", "Head", density=1.0)
-
-
-def _loops(m: K.Model, P: dict, dens: float) -> None:
-    """Right ribbon loop as a stair-stepped plate: front and back face (one polygon island each) and one wall strip round the outline."""
-    y0, kx, kz, xc, zc = _loop_plane(P)
-    nrm = K.vnorm((-kx, 1.0, -kz))
-    half = P.get("loop_thick", LOOP_THICK) / 2.0
-    for poly in cell_outlines(loop_cells(P)):
-        back, front = [], []
-        for i, j in poly:
-            x, z = i * LOOP_CELL, j * LOOP_CELL
-            p = (x, y0 + kx * (x - xc) + kz * (z - zc), z)
-            back.append(m.vert(K.vsub(p, K.vmul(nrm, half)), "Head"))
-            front.append(m.vert(K.vadd(p, K.vmul(nrm, half)), "Head"))
-        m.poly(back, "ribbon", up=(0.0, 0.0, 1.0), density=dens)                 # faces away from the head (-y); CCW seen from behind
-        m.poly(list(reversed(front)), "ribbon", up=(0.0, 0.0, 1.0), density=dens)
-        m.strip([back, front], "ribbon", closed=True, up=(0.0, 0.0, 1.0), density=dens)
+def _loop(m: K.Model, P: dict) -> None:
+    w = K.rule_blend(2, Z(-0.5), Z(-4.0), "Head", "Chest")
+    K.cell_plate(m, loop_cells(P), "ribbon", w, origin=(0.0, Y(LOOP_Y), Z0), es=(U, 0.0, 0.0), ez=(0.0, 0.0, U), thickness=0.5 * U,
+                 density=P.get("loop_density", 1.0))
 
 
 def add(m: K.Model, P: dict) -> None:
-    dens = P.get("hair_density", 2.0)
-    _dome(m, P, "Head", dens)
-    _panels(m, P, "Head", dens)
-    _bun(m, P, "Head", dens)
-    mk = m.mark()
-    _fringe(m, P, "Head", dens)
-    m.mirror(mk)
-    mk = m.mark()
-    _lock(m, P, dens)
-    m.mirror(mk)
-    mk = m.mark()
-    _sprig(m, P)
-    m.mirror(mk)
-    mk = m.mark()
-    _loops(m, P, P.get("loop_density", 3.0))
-    m.mirror(mk)
+    dens = P.get("hair_density", 1.0)
+    _hair_centre(m, dens)
+    for fn in (lambda: _hair_side(m, dens), lambda: _laurel_side(m, dens), lambda: _loop(m, P)):
+        mk = m.mark()
+        fn()
+        m.mirror(mk)

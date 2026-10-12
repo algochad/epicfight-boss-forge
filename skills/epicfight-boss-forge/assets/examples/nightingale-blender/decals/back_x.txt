@@ -1,0 +1,9 @@
+; Cream stair-step X pair with stems on the lower back (tabard top, back face).
+@# #fff4c8
+#...#..#...#
+.#.#....#.#.
+..#......#..
+.#.#....#.#.
+#...#..#...#
+..#......#..
+..#......#..

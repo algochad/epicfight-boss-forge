@@ -529,7 +529,7 @@ class ShapeTests(unittest.TestCase):
 
 
 STAFF = dict(AP, shape="crystal_staff", blade="#bfe9ff", guard="#f0c850", grip="#4aa0e8", gem="#2ea8ff")
-STAFF_SHAPES = ("crystal_staff", "orb_staff")
+STAFF_SHAPES = ("crystal_staff", "orb_staff", "diamond_staff")
 
 
 class StaffTests(unittest.TestCase):
@@ -600,8 +600,9 @@ class StaffTests(unittest.TestCase):
                 sprites.render_weapon("spear", dict(STAFF, **opts), 64, 3)
 
     def test_generated_files_follow_the_sprite_resolution(self):
-        for opts, size in ((dict(shape="crystal_staff"), 64), (dict(shape="orb_staff"), 64),
-                           (dict(shape="crystal_staff", resolution=32), 32), (dict(shape="leaf"), 32)):
+        for opts, size in ((dict(shape="crystal_staff"), 64), (dict(shape="orb_staff"), 64), (dict(shape="diamond_staff"), 64),
+                           (dict(shape="crystal_staff", resolution=32), 32), (dict(shape="diamond_staff", resolution=32), 32),
+                           (dict(shape="leaf"), 32)):
             files, _ = standalone("spear", appearance=opts)
             main = decode_png(files[res("assets/testmod/textures/item/test_blade.png")].data)
             gui = decode_png(files[res("assets/testmod/textures/item/test_blade_gui.png")].data)
@@ -656,6 +657,209 @@ class StaffTests(unittest.TestCase):
             self.assertEqual(png_size(files[res(base + ".png")].data), (size, size))
             self.assertEqual(png_size(files[res(base + "_gui.png")].data), (gui, gui))
         self.assertEqual(png_size(files["bossforge/previews/king_arthur_weapons.png"].data)[1], 64 * 8)
+
+
+DIAMOND = dict(AP, shape="diamond_staff", blade="#86bdf0", guard="#e0b948", grip="#6fb4e6", gem="#4fdcf5")
+
+
+def opaque(cv):
+    return [cv.get(x, y) for y in range(cv.h) for x in range(cv.w) if cv.get(x, y)[3] == 255]
+
+
+def reddish(cv):
+    return sum(1 for p in opaque(cv) if p[0] > p[1] + 80 and p[0] > p[2] + 80)
+
+
+class DiamondStaffTests(unittest.TestCase):
+    """diamond_staff: a banded shaft in a gold collar under an open rhombus frame (crystal bars on the near two sides, gold
+    bars on the far two) around a bright orb with a small bead on the far corner, as in the Nightingale reference."""
+
+    def test_defaults_resolution_scale_and_grip(self):
+        self.assertEqual(sprites.sprite_resolution("spear", DIAMOND), 64)
+        self.assertEqual(sprites.sprite_resolution("spear", dict(DIAMOND, resolution=32)), 32)
+        with self.assertRaises(sprites.ShapeError):
+            sprites.sprite_resolution("spear", dict(DIAMOND, resolution=16))
+        self.assertTrue(sprites.is_staff("spear", DIAMOND))
+        self.assertFalse(sprites.is_staff("sword", DIAMOND))
+        # a short sceptre: 0.3 of a biped, gripped near the butt (the crystal staff keeps 1.0 / 0.40)
+        self.assertEqual(sprites.staff_default(DIAMOND, "visual_scale"), 0.3)
+        self.assertEqual(sprites.staff_default(DIAMOND, "grip"), 0.26)
+        for shape in ("crystal_staff", "orb_staff"):
+            self.assertEqual(sprites.staff_default({"shape": shape}, "visual_scale"), 1.0)
+            self.assertEqual(sprites.staff_default({"shape": shape}, "grip"), sprites.STAFF_GRIP)
+        staff = {"category": "spear", "appearance": dict(DIAMOND)}
+        for boss_scale in (None, 1.0, 1.5, 3.0):
+            self.assertEqual(weapon.effective_visual_scale(staff, boss_scale, True), 0.3)
+        self.assertEqual(weapon.effective_visual_scale(dict(staff, visual_scale=0.5), 3.0, True), 0.5)
+        self.assertEqual(weapon.effective_visual_scale({"category": "spear", "appearance": {"shape": "crystal_staff"}}, 3.0, True), 1.0)
+
+    def test_one_connected_piece_for_every_option_and_resolution(self):
+        for res_px in (64, 32, 16):
+            for frame in (0.7, 1.0, 1.3):
+                for length in (0.8, 1.15):
+                    for width in (0.7, 1.4):
+                        for rings in (0, 4):
+                            for glow in (False, True):
+                                ap = dict(DIAMOND, frame=frame, length=length, width=width, rings=rings, glow=glow)
+                                cv = sprites.render_weapon("spear", ap, res_px, 5)
+                                self.assertEqual(len(components(cv)), 1, (res_px, frame, length, width, rings, glow))
+                                self.assertGreater(alpha_count(cv), 40)
+        for rings in (1, 2, 3):
+            self.assertEqual(len(components(sprites.render_weapon("spear", dict(DIAMOND, rings=rings), 64, 5))), 1)
+
+    def test_frame_option_is_validated_and_resizes_only_the_head(self):
+        for bad in (0.69, 1.31, "1", True, None):
+            with self.assertRaises(sprites.ShapeError, msg=str(bad)):
+                sprites.render_weapon("spear", dict(DIAMOND, frame=bad), 64, 3)
+            with self.assertRaises(sprites.ShapeError, msg=str(bad)):
+                sprites.staff_geometry(dict(DIAMOND, frame=bad))
+        spans = []
+        for frame in (0.7, 0.85, 1.0, 1.15, 1.3):
+            cv = sprites.render_weapon("spear", dict(DIAMOND, frame=frame), 64, 3)
+            across = [x + y for y in range(64) for x in range(64) if cv.get(x, y)[3] == 255]  # grows with the distance from the axis
+            spans.append(max(across) - min(across))
+        self.assertEqual(spans, sorted(spans))
+        self.assertLess(spans[0], spans[-1])
+        # the shaft and the butt do not move: the foot of the sprite is the same pixel for every frame
+        feet = set()
+        for f in (0.7, 1.3):
+            cv = sprites.render_weapon("spear", dict(DIAMOND, frame=f), 64, 3)
+            feet.add(min((x - y, x, y) for y in range(64) for x in range(64) if cv.get(x, y)[3] == 255))
+        self.assertEqual(len(feet), 1)
+        base = sprites.render_weapon("spear", DIAMOND, 64, 3).data
+        self.assertEqual(sprites.render_weapon("spear", dict(DIAMOND, frame=1.0), 64, 3).data, base)  # 1.0 is the default
+        self.assertEqual(sprites.render_weapon("spear", dict(AP, shape="leaf", frame=1.3), 32, 3).data,
+                         sprites.render_weapon("spear", dict(AP, shape="leaf"), 32, 3).data)  # other shapes ignore it
+
+    def test_head_is_wider_than_long_like_the_reference(self):
+        # the reference head measures about 55 px along the staff and 68 across it (near-orthographic front view)
+        d = sprites._diamond_dims({"length": 1.0, "frame": 1.0})
+        cv = sprites.render_weapon("spear", DIAMOND, 64, 3)
+        head = [(x, y) for y in range(64) for x in range(64)
+                if cv.get(x, y)[3] == 255 and math.sqrt(0.5) * (0.5 * (x - y) + 28.0) > d["bottom"]]  # past the near corner
+        across = [x + y for x, y in head]  # both sums scale alike: 0.354 design px per sprite px step
+        along = [x - y for x, y in head]
+        self.assertGreater(max(across) - min(across), 1.15 * (max(along) - min(along)))
+
+    def test_parts_follow_the_colours(self):
+        cv = sprites.render_weapon("spear", DIAMOND, 64, 3)
+        pix = opaque(cv)
+        self.assertGreater(len([p for p in pix if p[0] > p[2] + 60 and p[1] > p[2] + 30]), 60)  # gold bars, collar and ferrule
+        self.assertGreater(len([p for p in pix if min(p[:3]) > 180]), 40)  # crystal bars and facets
+        self.assertEqual(reddish(cv), 0)
+        self.assertGreater(reddish(sprites.render_weapon("spear", dict(DIAMOND, gem="#ff2020"), 64, 3)), 60)  # orb and bead
+        self.assertGreater(reddish(sprites.render_weapon("spear", dict(DIAMOND, grip="#c02020"), 64, 3)), 15)  # shaft bands
+        self.assertGreater(reddish(sprites.render_weapon("spear", dict(DIAMOND, guard="#ff0000"), 64, 3)), 60)  # gold parts
+
+    def test_rings_change_the_shaft_and_spikes_do_nothing(self):
+        base = sprites.render_weapon("spear", DIAMOND, 64, 3).data
+        for rings in (0, 1, 3, 4):
+            self.assertNotEqual(sprites.render_weapon("spear", dict(DIAMOND, rings=rings), 64, 3).data, base, rings)
+        self.assertEqual(sprites.render_weapon("spear", dict(DIAMOND, spikes=5), 64, 3).data, base)
+        self.assertEqual(sprites.render_weapon("spear", DIAMOND, 64, 3).data, base)  # deterministic
+        self.assertNotEqual(sprites.render_weapon("spear", DIAMOND, 64, 4).data, base)  # the seed only sparkles a few pixels
+        other = sprites.render_weapon("spear", dict(DIAMOND, shape="crystal_staff"), 64, 3).data
+        self.assertNotEqual(other, base)
+
+    def test_geometry_matches_the_painted_sprite(self):
+        for frame in (0.7, 1.0, 1.3):
+            for length in (0.8, 1.0, 1.15):
+                ap = dict(DIAMOND, frame=frame, length=length)
+                g = sprites.staff_geometry(ap)
+                cv = sprites.render_weapon("spear", ap, 64, 5)
+
+                def pix(p, along=0.0):
+                    return cv.get(int((p[0] + along * g["axis"][0]) * 64), int((1.0 - p[1] - along * g["axis"][1]) * 64))
+
+                self.assertEqual(pix(g["tip"], -1 / 64.0)[3], 255, (frame, length))  # the bead ends at the axis end
+                self.assertEqual(pix(g["butt"], 1 / 64.0)[3], 255, (frame, length))
+                self.assertLess(pix(g["tip"], 4 / 64.0)[3], 255, (frame, length))
+                core = pix(g["orb"])  # the middle of the frame is the orb's bright core in the gem colour
+                self.assertEqual(core[3], 255)
+                self.assertGreater(min(core[:3]), 150, (frame, length, core))
+                self.assertGreater(core[2], core[0] + 30)
+                frac = math.dist(g["butt"], g["orb"]) / math.dist(g["butt"], g["tip"])
+                self.assertTrue(0.6 < frac < 0.9, (frame, length, frac))
+        a = sprites.staff_geometry(dict(DIAMOND, frame=0.7))["orb"]
+        b = sprites.staff_geometry(dict(DIAMOND, frame=1.3))["orb"]
+        self.assertLess(math.dist(a, sprites.staff_geometry(DIAMOND)["tip"]), math.dist(b, sprites.staff_geometry(DIAMOND)["tip"]))
+
+    def test_spec_validation_of_frame_and_visual_scale(self):
+        cases = [
+            (dict(shape="diamond_staff", frame=1.5), "frame", "out_of_range"),
+            (dict(shape="diamond_staff", frame=0.5), "frame", "out_of_range"),
+            (dict(shape="diamond_staff", frame="big"), "frame", "bad_type"),
+            (dict(shape="diamond_staff", resolution=16), "resolution", "unknown_value"),
+        ]
+        for ap, key, code in cases:
+            errs = []
+            spec.validate_weapon(errs, "/w", weapon_spec("spear", appearance=ap))
+            self.assertEqual([(e.path, e.code) for e in errs], [("/w/appearance/" + key, code)], ap)
+        for extra in (dict(frame=0.7), dict(frame=1.3, rings=3, spikes=4, resolution=32, length=0.8)):
+            errs = []
+            spec.validate_weapon(errs, "/w", weapon_spec("spear", appearance=dict(shape="diamond_staff", **extra)))
+            self.assertEqual(errs, [], extra)
+        n = spec.normalize_weapon_spec(weapon_spec("spear", appearance=dict(shape="diamond_staff", frame=0.9)))
+        self.assertEqual(n["appearance"]["frame"], 0.9)
+        # a sceptre may be shorter than the 0.4 floor of the other weapons
+        for vs, ap, ok in ((0.25, dict(shape="diamond_staff"), True), (0.3, dict(shape="crystal_staff"), True), (0.2, dict(shape="diamond_staff"), False),
+                           (0.3, dict(shape="leaf"), False)):
+            errs = []
+            spec.validate_weapon(errs, "/w", weapon_spec("spear", appearance=ap, visual_scale=vs))
+            self.assertEqual([(e.path, e.code) for e in errs], [] if ok else [("/w/visual_scale", "out_of_range")], (vs, ap))
+        errs = []
+        spec.validate_weapon(errs, "/w", weapon_spec("sword", visual_scale=0.3))
+        self.assertEqual([(e.path, e.code) for e in errs], [("/w/visual_scale", "out_of_range")])
+
+    def test_model_uses_the_diamond_staffs_own_scale_and_grip(self):
+        files, _ = standalone("spear", appearance=dict(shape="diamond_staff", frame=0.9, length=0.8))
+        m = jload(files, "assets/testmod/models/item/test_blade.json")
+        d = m["base"]["display"]["thirdperson_righthand"]
+        ap = dict(shape="diamond_staff", frame=0.9, length=0.8)
+        g = sprites.staff_geometry(ap)
+        self.assertEqual(d, holdpose.staff_display(ap, 0.3, None))
+        self.assertAlmostEqual(math.dist(holdpose.place(d, g["butt"]), holdpose.place(d, g["tip"])), 1.8 * 0.3, delta=0.003)
+        origin, _ = holdpose.hand_frame()
+        grip = (g["butt"][0] + 0.26 * (g["tip"][0] - g["butt"][0]), g["butt"][1] + 0.26 * (g["tip"][1] - g["butt"][1]))
+        for a, b in zip(holdpose.place(d, grip), origin):
+            self.assertAlmostEqual(a, b, delta=0.002)
+        self.assertEqual(weapon.audit_staff_model(m, dict(id="w", category="spear", appearance=ap)), [])
+
+    def test_predicted_hold_numbers(self):
+        # where the orb ends up in body space (x right, y up, z back; blocks at entity scale 1) for the Nightingale staff
+        ap = dict(shape="diamond_staff", frame=0.9, length=0.8)
+        g = sprites.staff_geometry(ap)
+        up = holdpose.staff_display(ap, 0.3)  # the default: upright, leaning 10 degrees forward
+        orb = holdpose.place(up, g["orb"])
+        self.assertAlmostEqual(orb[0], 0.376, delta=0.01)
+        self.assertTrue(1.03 < orb[1] < 1.12, orb)  # between hip (hand 0.80) and chest
+        self.assertAlmostEqual(angle_deg(holdpose.direction(up, g["butt"], g["tip"]), (0, 1, 0)), 10.0, delta=0.05)
+        for pose in ("hold_spear", "idle", "bind", "walk_spear"):
+            self.assertTrue(1.03 < holdpose.place(up, g["orb"], pose)[1] < 1.12, pose)
+        # the reference carries it nearly horizontal, the head away from the body at hip height
+        carry = holdpose.staff_display(ap, 0.3, {"lean": 0, "side": 82, "offset": [-0.4, 0.0, 0.14]})
+        orb = holdpose.place(carry, g["orb"])
+        self.assertTrue(0.55 < orb[0] < 0.75 and 0.82 < orb[1] < 0.95 and abs(orb[2]) < 0.1, orb)
+        self.assertAlmostEqual(holdpose.direction(carry, g["butt"], g["tip"])[1], math.sin(math.radians(8.0)), delta=0.01)
+
+    def test_every_hold_knob_works_up_to_a_horizontal_staff(self):
+        ap = dict(shape="diamond_staff", frame=0.9, length=0.8)
+        g = sprites.staff_geometry(ap)
+        for hold in ({"side": 90, "lean": 0}, {"side": -90, "lean": 0}, {"side": 82, "lean": 0}, {"side": 60, "lean": 30},
+                     {"side": -75, "lean": 15, "facing": "side"}):
+            d = holdpose.staff_display(ap, 0.3, hold)
+            want = holdpose._target_axis(hold["lean"], hold["side"])
+            self.assertLess(angle_deg(holdpose.direction(d, g["butt"], g["tip"]), want), 0.05, hold)
+            self.assertTrue(all(abs(v) <= 80.0 for v in d["translation"]) and all(abs(v) <= 4.0 for v in d["scale"]))
+        self.assertEqual(holdpose.check_hold({"side": 90, "lean": 0}), [])
+        for bad in (91, -90.5):
+            self.assertEqual([e[:2] for e in holdpose.check_hold({"side": bad})], [("/hold/side", "out_of_range")])
+        # the sprite plane cannot face along its own axis
+        errs = holdpose.check_hold({"side": 90, "lean": 0, "facing": "side"})
+        self.assertEqual([e[:2] for e in errs], [("/hold/facing", "out_of_range")])
+        with self.assertRaises(BossForgeError):
+            holdpose.staff_display(ap, 0.3, {"side": 90, "lean": 0, "facing": "side"})
+        self.assertEqual(holdpose.check_hold({"side": 80, "lean": 0, "facing": "side"}), [])
 
 
 def rotate(rx, ry, rz, v):

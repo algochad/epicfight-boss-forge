@@ -503,11 +503,18 @@ class Model:
             out.tags.append(fc["t"])
             out.smooth.append(bool(fc["s"]))
             out.uvs.append([((ox + (x - mnx) * sx) / a, 1.0 - (oy + (y - mny) * sy) / a) for x, y in fc["xy"]])
+        area: Dict[str, List[float]] = {}  # per group: [sum island texel area, sum island block area]
         for k, isl in enumerate(islands):
             tw, th = sizes[k]
             if isl["w"] > 1e-4 and isl["h"] > 1e-4:
                 rep.setdefault(isl["g"], []).extend([tw / isl["w"], th / isl["h"]])
-        out.density_report = {g: {"min": round(min(v), 2), "max": round(max(v), 2), "mean": round(sum(v) / len(v), 2)}
+                acc = area.setdefault(isl["g"], [0.0, 0.0])
+                acc[0] += tw * th
+                acc[1] += isl["w"] * isl["h"]
+        # min / max / mean are over island edges (thin slivers rounded up to one texel inflate max); `area` = texels per block of the
+        # surface, area-weighted (what `bossforge skin` reports as `texels_per_block`)
+        out.density_report = {g: {"min": round(min(v), 2), "max": round(max(v), 2), "mean": round(sum(v) / len(v), 2),
+                                  "area": round(math.sqrt(area[g][0] / area[g][1]), 2)}
                               for g, v in sorted(rep.items())}
         return out
 
@@ -768,6 +775,79 @@ def sweep(m: Model, path: Sequence[Sequence[float]], widths: Union[float, Sequen
                          flat_cols=(1, 3) if bevel <= 0.0 else (), cap_up=(0.0, 0.0, 1.0))
 
 
+def prism(m: Model, outline: Sequence[Sequence[float]], depth: Sequence[float], group: str, w: WeightSpec, *,
+          up: Vec = (0.0, 0.0, 1.0), density: float = 1.0, smooth: bool = False) -> Tuple[int, int]:
+    """Closed slab: the planar polygon `outline` (>= 3 points, convex or concave, any winding) pushed by the vector `depth` (the
+    back face is the outline moved by it). Unlike `block` the two big faces are the polygon itself: each is ONE UV island of its own
+    (image-up = `up` projected into the face, so a slanted plank stays upright along its axis; > 4 corners are ear-clipped), the
+    side walls are one wrap-around strip. Feather planks, glyph tiles, stair-stepped plates: the painter can treat the front and the
+    back face differently because they never share an island. Winding is fixed automatically."""
+    front = [tuple(p) for p in outline]
+    back = [vadd(p, depth) for p in front]
+    return _closed_solid(m, [front, back], group, w, caps=(True, True), up=(0.0, 0.0, 1.0), density=density, smooth=smooth,
+                         cap_up=up)  # type: ignore[arg-type]
+
+
+def cell_outlines(cells: Iterable[Tuple[int, int]]) -> List[List[Tuple[int, int]]]:
+    """Boundary polygons of a set of unit grid cells (i, j) (cell (i, j) spans i..i+1, j..j+1): counter-clockwise lists of integer
+    corner points (i, j) with the collinear ones dropped, one polygon per connected piece. Cells that touch only at a corner give
+    separate polygons. Raises ValueError when the set has a hole (a hole boundary would be a clockwise loop)."""
+    cells = set(cells)
+    out: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
+    for i, j in cells:
+        if (i, j - 1) not in cells:
+            out.setdefault((i, j), []).append((i + 1, j))
+        if (i + 1, j) not in cells:
+            out.setdefault((i + 1, j), []).append((i + 1, j + 1))
+        if (i, j + 1) not in cells:
+            out.setdefault((i + 1, j + 1), []).append((i, j + 1))
+        if (i - 1, j) not in cells:
+            out.setdefault((i, j + 1), []).append((i, j))
+    loops: List[List[Tuple[int, int]]] = []
+    while out:
+        start = min(out)
+        loop, cur, d_in = [start], start, None
+        while True:
+            nxt = out[cur]
+            if len(nxt) == 1 or d_in is None:
+                end = nxt[0]
+            else:  # corner contact: take the leftmost turn so each piece stays one simple polygon
+                end = max(nxt, key=lambda e: d_in[0] * (e[1] - cur[1]) - d_in[1] * (e[0] - cur[0]))
+            nxt.remove(end)
+            if not nxt:
+                del out[cur]
+            d_in = (end[0] - cur[0], end[1] - cur[1])
+            cur = end
+            if cur == start:
+                break
+            loop.append(cur)
+        n = len(loop)
+        corners = [p for k, p in enumerate(loop)
+                   if (p[0] - loop[k - 1][0]) * (loop[(k + 1) % n][1] - p[1]) != (p[1] - loop[k - 1][1]) * (loop[(k + 1) % n][0] - p[0])]
+        area = sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(corners, corners[1:] + corners[:1]))
+        if area <= 0:
+            raise ValueError("cells enclose a hole")
+        loops.append(corners)
+    return loops
+
+
+def cell_plate(m: Model, cells: Iterable[Tuple[int, int]], group: str, w: WeightSpec, *, origin: Sequence[float], es: Sequence[float],
+               ez: Sequence[float], thickness: float, density: float = 1.0) -> List[Tuple[int, int]]:
+    """Stair-stepped slab through a set of unit grid cells: cell (i, j) is the parallelogram `origin + es * i + ez * j` (`es`, `ez` =
+    the model-space step of one cell, e.g. one art pixel), thickness `thickness` centred on that plane along `es x ez`. One `prism`
+    per connected piece of the set (`cell_outlines`): its two big faces are one UV island each (image-up = `ez`), the stair-step side
+    walls one wrap-around strip. Pixel-art leaves, laurel combs, ribbon loops, plates that must follow a pixel grid. Returns the
+    marks of the prisms."""
+    n = vnorm(vcross(es, ez))
+    lo = vmul(n, -thickness / 2.0)
+    up = vnorm(ez)
+    marks = []
+    for poly in cell_outlines(cells):
+        pts = [vadd(vadd(origin, lo), vadd(vmul(es, i), vmul(ez, j))) for i, j in poly]
+        marks.append(prism(m, pts, vmul(n, thickness), group, w, up=up, density=density))
+    return marks
+
+
 def path_with_bulge(p0: Sequence[float], p1: Sequence[float], bulge: Sequence[float], n: int = 6) -> List[Vec]:
     """Quadratic Bezier from p0 to p1 whose middle is pushed by the vector `bulge` (arc-like curl of feathers, ribbons)."""
     mid = vadd(vlerp(p0, p1, 0.5), vmul(bulge, 2.0))
@@ -881,10 +961,13 @@ def evaluated_points(obj) -> List[Vec]:
         eo.to_mesh_clear()
 
 
-def points_inside(target_obj, points: Sequence[Sequence[float]], margin: float = 0.0, with_depth: bool = False):
+def points_inside(target_obj, points: Sequence[Sequence[float]], margin: float = 0.0, with_depth: bool = False, aligned: float = 0.0):
     """Indices of `points` that lie inside the (closed, outward-facing) evaluated mesh of `target_obj` (modifiers / armature
     pose applied), deeper than `margin` blocks. Nearest-surface test: inside when (p - nearest) . normal < -margin.
-    `with_depth` returns [(index, depth_in_blocks)] instead."""
+    `with_depth` returns [(index, depth_in_blocks)] instead. `aligned` (0..1) additionally requires the nearest point to lie
+    straight "below" the sample, depth >= aligned x distance: a point beside the corner of a plate has a nearest point on the
+    plate's edge and is not inside, whatever the sign of its dot product with that plate's normal (non-convex or flared volumes give
+    such false hits at 0.1-0.3 block distance); 0.5 keeps real penetrations (the nearest point lies within 60 degrees of the normal)."""
     bpy = _bpy()
     from mathutils import Vector
     from mathutils.bvhtree import BVHTree
@@ -894,11 +977,11 @@ def points_inside(target_obj, points: Sequence[Sequence[float]], margin: float =
     hits = []
     for i, p in enumerate(points):
         v = Vector(p)
-        loc, nrm, _idx, _dist = tree.find_nearest(v)
+        loc, nrm, _idx, dist = tree.find_nearest(v)
         if loc is None:
             continue
         d = (v - loc).dot(nrm)
-        if d < -max(margin, 1e-6):
+        if d < -max(margin, 1e-6) and -d >= aligned * dist:
             hits.append((i, -d) if with_depth else i)
     return hits
 

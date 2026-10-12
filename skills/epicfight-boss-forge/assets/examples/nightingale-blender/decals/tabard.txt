@@ -1,0 +1,14 @@
+; Cream-bordered tabard, 7 wide: border pixels left and right, a diamond-key chain at the hem, cream bottom edge.
+@# #fff8e0
+#.....#
+#.....#
+#.#.#.#
+#.#.#.#
+##...##
+##.#.##
+#.#.#.#
+#..#..#
+##...##
+#.#.#.#
+#..#..#
+#######

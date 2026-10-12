@@ -4,7 +4,8 @@
     bossforge blender ... (any runner that sets BFK_ARGS {"out": DIR, "id": ..., "params": {...}})
 
 Deterministic: no randomness outside `params["seed"]`, same bytes every run. The model is code (kit: `bfk.modeling`), parts live in
-`nt_body`, `nt_hair`, `nt_wings`, `nt_extras`; reference measurements and weight rules in `nt_common`. Outputs in DIR:
+`nt_body`, `nt_hair`, `nt_wings`, `nt_extras`; reference measurements, the art pixel grid (1 texel = 1 art pixel = `nt_common.PIXEL` blocks;
+`texel_density` 16 per 16-pixel art block, atlas 512) and weight rules in `nt_common`. Outputs in DIR:
 `<id>.efmesh.json` + `<id>.meshmeta.json` (BlenderKit's `bfk.efio.export_efmesh`), `<id>.blend` (the editable scene: mesh object +
 EF_Biped rig, UV map `UVMap`, one material slot per group) and `build_report.json`.
 """
@@ -19,17 +20,18 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 import nt_common  # noqa: E402
-from nt_common import GROUPS, GROUP_NAMES, K, PREVIEW  # noqa: E402
+from nt_common import GROUP_NAMES, K, PREVIEW  # noqa: E402
 
 
-PARTS = ("nt_hair", "nt_ribbons", "nt_wings", "nt_extras")  # add(m, P) modules after the body; `params["parts"]` overrides
+PARTS = ("nt_hair", "nt_ribbons", "nt_wings", "nt_harness", "nt_extras")  # add(m, P) modules after the body; `params["parts"]` overrides
 
 
 def build_model(over=None):
     """Pure-Python geometry (no bpy): returns (Model, params)."""
     import nt_body
     P = nt_common.params(over)
-    m = K.Model(GROUP_NAMES, atlas=P["atlas"], margin=P["margin"], density=dict(GROUPS), default_density=64.0)
+    dens = nt_common.group_densities(P)
+    m = K.Model(GROUP_NAMES, atlas=P["atlas"], margin=P["margin"], density=dens, default_density=float(P["texel_density"]) / nt_common.BLOCK)
     nt_body.add_body(m, P)
     for name in P["parts"] or PARTS:
         try:
@@ -69,7 +71,9 @@ def run(args):
     built, obj, arm = res["built"], res["obj"], res["rig"]
     rep = efio.export_efmesh(obj, arm, out, mesh_id, max_influences=3, source="%s.blend" % mesh_id)
     result = {"ok": bool(rep.get("ok")), "id": mesh_id, "triangles": built.triangles(), "vertices": len(built.positions),
-              "atlas": built.atlas, "texel_scale": round(built.scale, 3), "density_texels_per_block": built.density_report,
+              "atlas": built.atlas, "texel_scale": round(built.scale, 3), "texel_density": res["params"]["texel_density"],
+              "texels_per_model_block": round(res["params"]["texel_density"] / nt_common.BLOCK, 3), "pixel_blocks": round(nt_common.PIXEL, 5),
+              "density_texels_per_block": built.density_report,
               "weights": K.weight_report(obj, [g.name for g in obj.vertex_groups]),
               "export": {k: rep.get(k) for k in ("ok", "triangles", "positions", "uvs", "normals", "groups", "max_influences", "height", "bounds",
                                                   "facing", "check_mesh_json", "errors", "warnings", "influence_histogram", "triangles_by_part")},

@@ -1,289 +1,337 @@
-"""Nightingale wings: two big stair-stepped angel wings made of layered feather cards (the character's RIGHT wing first, then mirrored).
+"""Nightingale wings: two big angel wings made of broad PLANK feathers on the art-pixel grid (character's right wing first, mirrored).
 
-Every measurement is a sheet pixel of the FRONT orthographic view (`sheet_ortho_front_back.png`; the character's right wing is the
-image-left one) converted through `REF`, so the numbers can be checked against the sheet. Two layouts: `WING_R` was hill-climbed in 2D against the
-front sheet's right wing, `WING_L` against the front sheet's left wing (mirrored into the same frame; the sheet's left wing is ~9 px
-wider) with the back-sheet left wing as a second target at weight 0.3 (IoU_front + 0.3 x IoU_back, normalised): the front view is the
-primary view, the back view is kept near 0.84. The left wing is built from `WING_L` (x negated); `wing_symmetric=True` builds `WING_R`
-and mirrors it instead. Rows, front to back (the sheet shows every
-row lying over the one below it, like roof tiles); the colour fades white -> lavender -> violet with the group:
+The new reference (`anatomical_front_back.png`, `hero_front.png`) draws Minecraft pixel art: every feather is a flat plank 3-4 art pixels
+wide with a flat, stair-stepped tip, the planks lie in overlapping tiers (roof tiles) and fan out from the shoulder. All numbers
+below are ART PIXELS (`nt_common.PIXEL` = 0.0325 model blocks, 1 texel each) in the WING FRAME `(U, Z)`: U = distance outwards from the spine
+(the wing's own centre line), Z = height above the soles; the curves were read from the silhouette mask of the sheet's front figure
+(px_per_block 232, ground y 504, the wings are mirror-symmetric about sheet x 258.5 there) and rounded:
 
-    A  wing_a  white leading-edge slab: the wrist cap (2 blocks) and 5 fanned strips whose tips run along the white / lavender diagonal
-    B  wing_b  white inner coverts hanging from the humerus line (stair-stepped outline up to the shoulder) + 1 hidden root covert
-    C  wing_c  lavender secondaries, tips y 220-285
-    D  wing_d  the long lavender-violet primaries, tips stepping up from the outer tip (x 20, y 383) to the sleeve (x 117, y 283)
+    OUTER   outer outline, wing top -> outermost tip           UPPER   upper envelope, spine -> wing top -> outer outline
+    TIP[r]  tip line of tier r (the planks of the tier end on it, 1 px stairs added); a tier's planks start where its line meets OUTER
 
-Depth: the front layer sits just behind the robe back (y -0.080; its front face is 0.006 clear of the pauldron back, more of the torso /
-sleeves). Roof tiles: every path point of a feather lies `LAYER_STEP` further back for each feather of the rows above that covers it in the
-front view (roots buried deep, free tips in front: the wing stays thin where it is not layered), overlapping neighbours of a row alternate
-by `PHASE_STEP` (no coplanar faces anywhere). The whole wing slides back a little with the lateral distance (`wing_back`), hangs back
-below hip height (`wing_sweep`: the sheet's side view has ribbons / hair behind the back down there) and each feather arches back by
-`wing_curl`.
+Tiers, front to back (every tier lies `STEP_PX` further back; the group = the painter's material):
 
-Parameters (all optional, `P.get`): wing_spread (lateral scale about the spine, 1.0 = sheet), wing_curl (depth arch of every feather),
-wing_split (strips per cover feather, 2; 1 = plain), wing_density (UV density multiplier), wing_weight ('chest' | 'shoulder': Chest ->
-Arm blend over the first 0.1 block of the wing root, share `wing_arm_weight`), wing_back (rearward slide per block of lateral distance),
-wing_sweep (rearward hang of the lower wing), wing_shift (whole wing outward, sheet px), wing_segments (path points per feather),
-wings (False = no wings).
+    le  wing_a  leading-edge planks: their tips step down the outline (the stair-stepped white edge), the front-most tier
+    a0  wing_a  short white top coverts under the leading edge (tips ~5 px below the upper envelope)
+    a1  wing_a  white coverts along the whole leading edge (tips at Z 41-47)
+    b   wing_b  white / pale lavender tier, flat tips at Z 38
+    c   wing_c  lavender tier, tips at Z 30 (the inner wing ends here)
+    d   wing_d  long pale-blue primaries of the outer half, tips down to Z 17 (thigh / knee height)
+
+A plank is a parallelogram with horizontal top and tip edges whose sides lean along the fan direction (steep near the leading edge,
+nearly vertical at the shoulder); its front and back faces are the polygon itself (`K.prism`: two separate UV islands per plank, so the
+painter can colour the front white -> lavender -> blue and the back iridescent) and the walls one strip. Every second plank of a tier
+sits `PHASE_PX` (a quarter pixel) deeper so overlapping neighbours never share a plane. The planks are 2 px thick, the back face is the
+front face moved straight back; the front faces have a slight pitch (tips lean back) and sweep back with the distance from the spine.
+
+Parameters (`P.get`): wings (False = no wings, no harness), wing_density (UV density multiplier), wing_spread (lateral scale about the
+spine; the harness does not follow), wing_back (rearward sweep of the outer wing per block of U, 0.05), wing_pitch (tips lean back, block
+per block of height, 0.05), wing_gap_px (gap between the torso back and the front tier, 1.5), wing_arm_clear (False puts the planks back
+into the pocket the sleeve hides, where a swung arm would plough through them), wing_weight ('chest' | 'shoulder': Chest -> Arm blend over
+the first 0.1 block of the wing root, share `wing_arm_weight`), seed (stair jitter of the tips).
 """
 from __future__ import annotations
 
-import copy
 import math
+import random
 
-from nt_common import REF as R, K
+from nt_common import K, PIXEL, px
 
-# --------------------------------------------------------------------------------------------------------- layout (sheet px)
-# One feather: (root (x, y), tip (x, y), width, bow): the tip is the centre of the flat bottom edge, `bow` pushes the middle of the
-# centre line sideways in px (negative = towards the outer edge, image-left), width is measured across the feather.
-def _tables(a, b, c, roots, cap, d):
-    return {"A": a, "B": b, "C": c, "ROOTS": roots, "CAP": cap, "D": d}
-
-
-WING_R = _tables(
-    # A: leading-edge slab strips [root x, root y, tip x, tip y, width, bow]; left outline (94,76) -> (22,219), tips on the white / lavender diagonal
-    [[99.5, 86.5, 36.5, 224, 19, -9], [111, 88, 41.5, 220, 22, -9], [111, 88, 62, 190, 17, 4], [126, 88, 80, 176, 20.5, 2.5], [126, 93, 96, 164, 16, -3]],
-    # B: white inner coverts, same fields; tips (104,188) (116,204) (128,212) (141,226) (152,224), right outline (135,120) -> (143,138)
-    [[114.5, 98, 103, 182, 16, -6], [122.5, 108, 116, 201, 20, 0], [126.5, 118, 131, 207, 16, 8], [134, 131.5, 136, 227, 16, 6.5], [138, 144, 146, 221, 16, 5], [146, 154, 161, 224, 16, 0]],
-    # C: lavender secondaries [tip x, tip y, width, lean (deg, tip towards the outer side), root y]
-    [[51, 248, 16, 11, 185], [66, 281, 20, 9, 175], [81, 273, 17, 9, 170], [101, 246, 19, 7, 165], [116, 228, 14, 6, 165], [130, 220, 14, 5, 165]],
-    # ROOTS: inner root covert behind the pauldron / sleeve, same fields as B (the wing stops at x ~0.2 so the back ribbons, x 0.17-0.19, run free)
-    [[156, 158, 164, 232, 16, 0]],
-    # CAP: wrist cap blocks (x0, y0, x1, y1): top ridge y 75-77 over x 100-124, right shoulder y 80-90
-    [[95, 76, 127, 90], [122, 81, 135, 92]],
-    # D: long primaries, same fields as C
-    [[16.5, 321, 12.5, 13.5, 215], [20.5, 382, 19.5, 8, 216], [34.5, 373.5, 8, 6, 225], [46.5, 362, 19.5, 7.5, 205], [53, 345, 18.5, 8, 200], [66.5, 339, 22, 16, 185], [79, 331, 9, 6, 175], [94.5, 315, 22, 7.5, 170], [108, 300, 9, 8.5, 180], [117, 283, 17, 5, 185], [130, 282, 14, 5, 190]])
-WING_L = _tables(   # character-left wing, same fields as WING_R, fitted to the front sheet's left wing (mirrored into the right-wing frame)
-    [[101, 83, 31.5, 218, 18, -12], [106, 84, 33.5, 217, 22, -1.5], [114, 88, 61, 190, 17, 4], [126, 88, 80, 178, 20, 2], [126, 93, 96, 164, 16, -3]],
-    [[114.5, 98, 103, 182, 16, -6], [122.5, 107, 116, 201, 20, 0], [127, 117, 127, 212, 16, 6.5], [135, 131, 136, 229, 16, 3], [138, 143.5, 143, 221, 16.5, 5], [146, 150, 161, 224, 16, 0]],
-    [[51, 248, 16, 11, 184], [66, 281, 20, 9, 172], [81, 273, 17, 9, 170], [101, 246, 19, 7, 165], [116, 231, 14, 6, 165], [130, 220, 14, 5, 165]],
-    [[156, 158, 164, 232, 16, 0]],
-    [[99, 76, 127, 90], [122, 81, 135, 91]],
-    [[12, 320.5, 22, 13, 210], [17, 381.5, 22, 5, 200.5], [35, 362, 14, 6, 225], [38, 358, 18, 4.5, 205], [52, 345, 12.5, 5, 200], [61.5, 336.5, 19.5, 12, 182], [69, 324.5, 8, 8, 175], [88, 314, 22, 9.5, 170], [107.5, 281.5, 15, 8.5, 180], [117, 280, 12, 5, 185], [130, 280, 14, 5, 190]])
-TOOTH = 5.0      # px: every other strip of a split feather is this much shorter (jagged cover feather ends)
-TIP_STEP = 3.5   # px: the last bit of every feather runs straight down so the bottom edge is a flat horizontal step
-
-ROWS = ("a", "b", "c", "d", "ra", "rb")                  # front layers A..D, then the rear covert layer (seen from behind)
-GROUP = {"a": "wing_a", "b": "wing_b", "c": "wing_c", "d": "wing_d", "ra": "wing_a", "rb": "wing_b"}
+# --------------------------------------------------------------------------------------------------------- wing frame curves (art px)
+OUTER = [(16.5, 59.2), (18.7, 57.4), (20.7, 55.0), (23.6, 51.5), (26.6, 47.5), (27.7, 44.0), (29.3, 40.0), (30.4, 36.0), (32.0, 30.0),
+         (33.0, 25.0), (33.3, 20.0), (33.0, 16.5)]
+UPPER = [(5.0, 45.0), (8.0, 45.5), (12.0, 49.0), (12.9, 53.5), (13.3, 56.5), (15.0, 59.0)] + OUTER[:]
+SPINE_U = 5.0            # the wing's inner end (behind the torso edge, U = 4.8 px)
+YOKE_Z = 35.5            # above this height the harness' shoulder plates fill U 3.4-7.2 (see nt_harness): the wing starts outside them
+YOKE_U = 7.5
+ROWS = ("le", "a0", "a1", "b", "c", "d")
+GROUP = {"le": "wing_a", "a0": "wing_a", "a1": "wing_a", "b": "wing_b", "c": "wing_c", "d": "wing_d"}
+LE = {"z0": 41.0, "z1": 57.0, "step": 2.8, "width": 3.0, "span": 8.0, "max_len": 14.0}   # leading-edge planks: tips ON the outline, stair steps
+TIP = {
+    "a0": [(SPINE_U, 48.0), (12.0, 49.5), (14.5, 52.5), (17.0, 53.0), (21.0, 50.5), (25.0, 47.5), (28.5, 44.5)],
+    "a1": [(SPINE_U, 44.0), (11.0, 45.0), (15.0, 46.5), (20.0, 45.0), (25.0, 42.5), (29.8, 41.0)],
+    "b": [(SPINE_U, 38.5), (13.0, 38.5), (20.0, 39.5), (30.0, 37.5)],
+    "c": [(SPINE_U, 31.0), (12.0, 29.5), (20.0, 30.0), (25.0, 31.0), (31.5, 27.0)],
+    "d": [(16.5, 31.5), (19.0, 30.8), (20.5, 27.0), (24.0, 24.5), (26.2, 23.3), (28.1, 20.3), (31.2, 16.8), (33.0, 17.0)],
+}
+WIDTH = {"le": 3, "a0": 4, "a1": 4, "b": 3, "c": 3, "d": 3}          # px, horizontal
+OVERLAP = {"a0": 0.0, "a1": 3.0, "b": 3.0, "c": 3.0, "d": 3.0}   # px each plank reaches up under the tier above
+LEAN_INNER = {"a0": 8.0, "a1": 8.0, "b": 6.0, "c": 5.0, "d": 4.0}   # degrees at the spine; the outer edge follows the outline
+LEAN_MIN = {"b": 8.0, "c": 6.0, "d": 6.0}                        # degrees: the outermost plank of a tier never leans less
+LEAN_MAX = 48.0
+MAX_LEN = {"a0": 40.0, "a1": 40.0, "b": 40.0, "c": 40.0, "d": 40.0}  # px
+D_U_MIN = 20.0
+SPACING = 0.92                                              # plank spacing / plank width (neighbours overlap a little)
+THICK_PX = 2.0
+STEP_PX = 0.5                                               # depth step between tiers
+PHASE_PX = 0.25                                             # odd planks of a tier lie this much deeper (px)
 
 
-def _bezier2(p0, p1, p2, n):
-    return [((1 - t) ** 2 * p0[0] + 2 * (1 - t) * t * p1[0] + t * t * p2[0],
-             (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * p1[1] + t * t * p2[1]) for t in (i / float(n) for i in range(n + 1))]
+_U_GRID = [SPINE_U + i for i in range(0, 31)]       # U samples of a tier's tip line (ray tests)
 
 
-def _polyline(root, tip, bow, n):
-    mid = ((root[0] + tip[0]) / 2.0 + bow, (root[1] + tip[1]) / 2.0)
-    pts = _bezier2(root, (2 * mid[0] - (root[0] + tip[0]) / 2.0, mid[1]), tip, n)
-    pts = pts[:-1] + [(tip[0], tip[1] - TIP_STEP), tip]
-    return pts
+def _interp(poly, x):
+    if x <= poly[0][0]:
+        return poly[0][1]
+    for (x0, y0), (x1, y1) in zip(poly, poly[1:]):
+        if x <= x1:
+            return y0 + (y1 - y0) * ((x - x0) / (x1 - x0) if x1 != x0 else 0.0)
+    return poly[-1][1]
 
 
-def _strips(row, i, root, tip, w, bow, n, split):
-    """One feather of the tables as `split` side-by-side strips (the covert rows have jagged, stair-stepped ends in the sheet): the
-    strips share the feather's width and alternate by TOOTH px in length."""
-    if split <= 1:
-        return [{"row": row, "i": i, "pts": _polyline(root, tip, bow, n), "w": w}]
-    dx, dy = tip[0] - root[0], tip[1] - root[1]
-    ln = math.hypot(dx, dy)
-    ux, uy = dx / ln, dy / ln
-    nx, ny = uy, -ux                   # across the feather, towards the inner side (+x)
+def outer_u(z: float) -> float:
+    """Outer outline U at height Z (outline runs top -> bottom: Z decreases)."""
+    pts = OUTER
+    if z >= pts[0][1]:
+        return pts[0][0]
+    for (u0, z0), (u1, z1) in zip(pts, pts[1:]):
+        if z >= z1:
+            return u0 + (u1 - u0) * ((z0 - z) / (z0 - z1) if z0 != z1 else 0.0)
+    return pts[-1][0]
+
+
+def outline_lean(z: float) -> float:
+    """Lean (degrees from vertical, tip outwards) of the outer outline at height Z."""
+    d = 1.5
+    a, b = outer_u(z + d), outer_u(z - d)
+    return math.degrees(math.atan2(b - a, 2.0 * d))
+
+
+def _ray_hit(p, d, poly):
+    """Smallest t > 0 where p + t d crosses the polyline (points (U, Z))."""
+    best = None
+    for (x0, y0), (x1, y1) in zip(poly, poly[1:]):
+        ex, ey = x1 - x0, y1 - y0
+        den = d[0] * ey - d[1] * ex
+        if abs(den) < 1e-9:
+            continue
+        t = ((x0 - p[0]) * ey - (y0 - p[1]) * ex) / den
+        s = ((x0 - p[0]) * d[1] - (y0 - p[1]) * d[0]) / den
+        if t > 1e-6 and -1e-9 <= s <= 1 + 1e-9:
+            best = t if best is None else min(best, t)
+    return best
+
+
+def _upper_z(u: float) -> float:
+    """Z of the upper envelope above U (the highest outline point there)."""
+    best = None
+    for (u0, z0), (u1, z1) in zip(UPPER, UPPER[1:]):
+        lo, hi = min(u0, u1), max(u0, u1)
+        if lo - 1e-9 <= u <= hi + 1e-9:
+            z = z0 + (z1 - z0) * ((u - u0) / (u1 - u0) if u1 != u0 else 0.0)
+            best = z if best is None else max(best, z)
+    return best if best is not None else UPPER[0][1]
+
+
+def _tip_z(row: str, u: float) -> float:
+    return _interp(TIP[row], u)
+
+
+def chord_lean(z: float) -> float:
+    """Lean of the straight line from the outline at height Z up to the wing's top tip (the long white leading-edge planks of the top
+    tiers run along this chord)."""
+    ua, za = OUTER[0]
+    return math.degrees(math.atan2(outer_u(z) - ua, za - z))
+
+
+def lean_at(row: str, u: float, z: float) -> float:
+    """Fan: the outermost planks follow the outline (the top tiers: the chord to the tip, the others: the local slope), towards the
+    spine the lean fades to the tier's inner value."""
+    uo = outer_u(z)
+    t = K.smoothstep(0.0, 14.0, uo - u)            # 0 at the outline, 1 fourteen px inside
+    if row in ("a0", "a1"):
+        edge = chord_lean(z)
+    else:   # the outline's slope over a plank length (its local slope can be negative where the outline bulges), never below LEAN_MIN
+        edge = max(math.degrees(math.atan2(uo - outer_u(z + 14.0), 14.0)), LEAN_MIN[row])
+    return min(K.lerp(edge, LEAN_INNER[row], t), LEAN_MAX)
+
+
+def spine_u(z: float) -> float:
+    """Inner end of the wing at height Z: the spine, or the outer face of the harness' shoulder plates above yoke height."""
+    return YOKE_U if z >= YOKE_Z else SPINE_U
+
+
+ARM_CLEAR = (12.0, 37.5)   # (U, Z) px: no plank below this height inside this distance of the spine (the sleeve hides the spot at rest; an arm
+#                            swung back 30-60 degrees (EF has no wing bones) would plough through it) -- `wing_arm_clear` = 0 puts them back
+
+
+def _inside(u: float, z: float, tol: float = 0.3, clear: bool = True) -> bool:
+    """Point inside the wing silhouette (outer outline, upper envelope, inner end, arm clearance pocket)."""
+    if clear and u < ARM_CLEAR[0] and z < ARM_CLEAR[1]:
+        return False
+    return spine_u(z) - tol <= u <= outer_u(z) + tol and z <= _upper_z(u) + tol
+
+
+def inside(u: float, z: float, tol: float = 0.3) -> bool:
+    return _inside(u, z, tol)
+
+
+def layout(P: dict = None):
+    """All planks of ONE wing (art px, wing frame): dicts {row, j, poly [(U, Z)...] front face outline (4 or 6 corners), up (dU, dZ)
+    unit axis from tip to top, w, lean (deg), len (px)}. Deterministic (`seed`), pure data (also used by tests and the harness).
+    Every plank starts on its tier's tip line and runs up along the fan direction until it would leave the silhouette or reach the
+    tier above (`OVERLAP` px under its tip line)."""
+    P = P or {}
+    rng = random.Random(int(P.get("seed", 7)))
+    clear = bool(P.get("wing_arm_clear", True))
+    inside = lambda u, z: _inside(u, z, clear=clear)  # noqa: E731
     out = []
-    for j in range(split):
-        o = (j - (split - 1) / 2.0) * w / split
-        cut = TOOTH * ((i + j) % 2)
-        r = (root[0] + nx * o, root[1] + ny * o)
-        t = (tip[0] + nx * o - ux * cut, tip[1] + ny * o - uy * cut)
-        out.append({"row": row, "i": i, "pts": _polyline(r, t, bow, n), "w": w / split})
-    return out
-
-
-def layout_px(P: dict, tab=None):
-    """All feathers of one wing (right-wing pixel frame): dicts {row, i, pts (px polyline root -> tip), w} and the cap blocks ({cap}).
-    Rows 'ra' / 'rb' are the rear covert layer: copies of the A strips / B coverts that lie behind the primaries (the sheet draws the
-    white covert rows over the lavender ones from behind as well), built with fewer path points. Pure data, also used by 2D tests."""
-    tab = tab or WING_R
-    n = int(P.get("wing_segments", 4))
-    split = int(P.get("wing_split", 2))
-    out = []
-    for c in tab["CAP"]:
-        out.append({"row": "a", "i": -1, "pts": [((c[0] + c[2]) / 2.0, c[1]), ((c[0] + c[2]) / 2.0, c[3])], "w": c[2] - c[0], "cap": c})
-    for row, items in (("a", tab["A"]), ("b", tab["B"]), ("b", tab["ROOTS"])):
-        for i, (rx, ry, tx, ty, w, bow) in enumerate(items):
-            out += _strips(row, i, (rx, ry), (tx, ty), w, bow, n, split)
-    for row, items in (("c", tab["C"]), ("d", tab["D"])):
-        for i, (tx, ty, w, lean, ry) in enumerate(items):
-            root = (tx + (ty - ry) * math.tan(math.radians(lean)), ry)
-            out += _strips(row, i, root, (tx, ty), w, 0.0, n, split if row == "c" else 1)
-    if P.get("wing_rear", True):
-        nr = int(P.get("wing_rear_segments", 3))
-        for row, items in (("ra", tab["A"]), ("rb", tab["B"]), ("rb", tab["ROOTS"])):
-            for i, (rx, ry, tx, ty, w, bow) in enumerate(items):
-                out += _strips(row, i, (rx, ry), (tx, ty), w, bow, nr, split)
-    return out
-
-
-# --------------------------------------------------------------------------------------------------------- depth layering
-def _hull(pts):
-    pts = sorted(set((round(x, 3), round(y, 3)) for x, y in pts))
-    if len(pts) < 3:
-        return pts
-
-    def half(seq):
-        h = []
-        for p in seq:
-            while len(h) >= 2 and (h[-1][0] - h[-2][0]) * (p[1] - h[-2][1]) - (h[-1][1] - h[-2][1]) * (p[0] - h[-2][0]) <= 0:
-                h.pop()
-            h.append(p)
-        return h
-    lo, up = half(pts), half(reversed(pts))
-    return lo[:-1] + up[:-1]
-
-
-def _outline(f):
-    """Convex hull (px) of a feather's rings: used to find which feathers overlap in the front view."""
-    pts, w = f["pts"], f["w"]
-    ring = []
-    for i, p in enumerate(pts):
-        a, b = pts[max(i - 1, 0)], pts[min(i + 1, len(pts) - 1)]
-        tx, ty = b[0] - a[0], b[1] - a[1]
-        n = math.hypot(tx, ty) or 1.0
-        nx, ny = ty / n, -tx / n
-        ring += [(p[0] + nx * w / 2.0, p[1] + ny * w / 2.0), (p[0] - nx * w / 2.0, p[1] - ny * w / 2.0)]
-    return _hull(ring)
-
-
-def _overlap(h1, h2, depth=1.5):
-    """True when two convex polygons interpenetrate by more than `depth` px (separating-axis test)."""
-    for poly in (h1, h2):
-        for i in range(len(poly)):
-            a, b = poly[i], poly[(i + 1) % len(poly)]
-            nx, ny = b[1] - a[1], a[0] - b[0]
-            n = math.hypot(nx, ny) or 1.0
-            nx, ny = nx / n, ny / n
-            p1 = [nx * x + ny * y for x, y in h1]
-            p2 = [nx * x + ny * y for x, y in h2]
-            if min(max(p1) - min(p2), max(p2) - min(p1)) <= depth:
-                return False
-    return True
-
-
-def _inside(h, p):
-    """Point in a convex counter-clockwise polygon."""
-    for i in range(len(h)):
-        a, b = h[i], h[(i + 1) % len(h)]
-        if (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) < 0:
-            return False
-    return True
-
-
-def assign_depth(feathers):
-    """Roof-tile layering, per feather and per path point (front view). `front[k]` = how many FRONT rows (A, B, C, D) above this feather's
-    row cover path point k (the point is buried under that many layers: roots lie deep under the rows above, free tips come forward); a
-    rear covert feather gets (rows covering the point) + 1, i.e. it lies behind every layer there. `phase` (0, 1, 2 ...) alternates
-    overlapping feathers of the same row so no two faces are ever coplanar."""
-    hulls = {}
-    for f in feathers:
-        if "cap" in f:
-            x0, y0, x1, y1 = f["cap"]
-            f["hull"] = _hull([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
-        else:
-            f["hull"] = _outline(f)
-        hulls.setdefault(f["row"], []).append(f["hull"])
-
-    def covered_by(row, p):
-        return any(_inside(h, p) for h in hulls.get(row, ()))
-    done = []
+    # leading-edge planks: their tips step down the outline, every plank hugs it (stair-stepped leading edge)
+    w = float(WIDTH["le"])
+    z = LE["z0"]
+    j = 0
+    while z <= LE["z1"] + 1e-6:
+        zt = round(z)
+        u = outer_u(zt) - w / 2.0
+        ang = math.atan2(outer_u(zt) - outer_u(zt + LE["span"]), LE["span"])
+        up = (-math.sin(ang), math.cos(ang))
+        length = 3.0
+        while length + 0.5 <= LE["max_len"]:
+            nl = length + 0.5
+            ut, zz = u + up[0] * nl, zt + up[1] * nl
+            if not (inside(ut - w / 2.0, zz) and inside(ut + w / 2.0, zz)):
+                break
+            length = nl
+        ztop = math.floor(zt + up[1] * length)
+        utop = round((u + (ztop - zt) * (up[0] / up[1])) * 2.0) / 2.0
+        ux = round(u * 2.0) / 2.0
+        out.append(_plank("le", j, ux, zt, utop, ztop, w, math.degrees(ang), step=False))
+        z += LE["step"]
+        j += 1
     for ri, row in enumerate(ROWS):
-        for f in [g for g in feathers if g["row"] == row and "cap" not in g]:
-            if row in ("ra", "rb"):
-                f["front"] = [1 + sum(1 for r in ROWS[:4] if covered_by(r, p)) for p in f["pts"]]
-            else:
-                f["front"] = [sum(1 for r in ROWS[:ri] if covered_by(r, p)) for p in f["pts"]]
-            used = {g["phase"] for g in done if g["row"] == row and _overlap(f["hull"], g["hull"])}
-            f["phase"] = min(k for k in range(len(used) + 1) if k not in used)
-            done.append(f)
-    return feathers
+        if row == "le":
+            continue
+        w0 = float(WIDTH[row])
+        # first tip: the plank whose outer edge touches the outline at the tip height (fixed point: the tip height depends on U)
+        u = outer_u(_tip_z(row, 20.0)) - w0 / 2.0
+        for _ in range(6):
+            u = outer_u(_tip_z(row, u)) - w0 / 2.0
+        j = 0
+        u0 = SPINE_U if row != "d" else D_U_MIN                      # (inside U 20 the d tier would only poke 1 px below the c tier)
+        while u >= u0 - 1e-6:
+            sp = w0 * SPACING
+            zt = round(_tip_z(row, u) + rng.choice((-1, 0, 0, 1)))        # stair jitter: whole pixels
+            ang = math.radians(lean_at(row, u, zt))
+            up = (-math.sin(ang), math.cos(ang))                          # towards the top: inwards (U decreases), Z increases
+            for w in (w0, w0 - 1.0, w0 - 2.0):                            # narrower planks where the silhouette tapers
+                length = 0.0
+                uu = min(u, outer_u(zt + 2.0) + 0.05 - w / 2.0)               # the outermost plank sits on the outline, not outside it
+                if w >= 2.0 and inside(uu, zt) and inside(uu - w / 2.0, zt + 2.0) and inside(uu + w / 2.0, zt + 2.0):
+                    length = 3.0
+                    while length + 0.5 <= MAX_LEN[row]:
+                        nl = length + 0.5
+                        ut, zz = uu + up[0] * nl, zt + up[1] * nl
+                        if not (inside(ut - w / 2.0, zz) and inside(ut + w / 2.0, zz)):
+                            break
+                        if row != "a0" and zz > _tip_z(ROWS[ri - 1], ut) + OVERLAP[row]:
+                            break
+                        length = nl
+                if length >= 3.0:
+                    break
+            if length >= 3.0:
+                ztop = math.floor(zt + up[1] * length)
+                utop = round((uu + (ztop - zt) * (up[0] / up[1])) * 2.0) / 2.0
+                ux = round(uu * 2.0) / 2.0
+                out.append(_plank(row, j, ux, zt, utop, ztop, w, math.degrees(ang), step=(j % 2 == 0)))
+            u -= sp
+            j += 1
+    return out
+
+
+def _plank(row, j, ub, zb, ut, zt, w, lean, step):
+    """Parallelogram (horizontal top / tip edges), optional 1 px tip step (the inner half 1 px higher)."""
+    k = (ut - ub) / (zt - zb) if zt != zb else 0.0            # U shift per unit Z
+    def edge(side, z):                                         # outline U at height z, side -1 outer / +1 inner
+        return ub + side * w / 2.0 + (z - zb) * k
+    if step and zt - zb > 3:
+        zs = zb + 1.0
+        poly = [(edge(-1, zb), zb), (ub, zb), (ub + k, zs), (edge(1, zs), zs), (edge(1, zt), zt), (edge(-1, zt), zt)]
+    else:
+        poly = [(edge(-1, zb), zb), (edge(1, zb), zb), (edge(1, zt), zt), (edge(-1, zt), zt)]
+    n = math.hypot(ut - ub, zt - zb) or 1.0
+    return {"row": row, "j": j, "poly": poly, "up": ((ut - ub) / n, (zt - zb) / n), "w": w, "lean": lean, "len": n}
 
 
 # --------------------------------------------------------------------------------------------------------- 3D build
-Y_FRONT = -0.080          # centre of the front-most feather layer; its front face (+0.008) is 0.0058 behind the pauldron back (-0.0662), more behind the robe / sleeves
-LAYER_STEP = 0.016        # a feather point buried under n front rows lies n x this behind the front layer
-PHASE_STEP = 0.004        # alternate overlapping feathers of a row differ by this (never coplanar; shrunk so all phases stay < LAYER_STEP)
-THICK = {"a": 0.016, "b": 0.014, "c": 0.014, "d": 0.014, "ra": 0.010, "rb": 0.010}
-A_ROOT_THICK = 0.034      # the leading-edge strips are the wing's bone: thick at the cap, thinning to THICK["a"] at 2/3 of their length
-CAP_DEPTH = (0.011, -0.020)    # cap blocks: front / back face relative to the front layer (the strips' front face is at +0.008)
-WING_ROOT_PX = (152, 160)      # where the wing meets the shoulder blade (front view px): the skinning root of the `shoulder` mode
-SHIFT_PX = 0.0           # whole wing outward by this many sheet px
-X_SPINE = 0.16            # wing_spread scales x about the spine line (behind the sleeve edge)
-Z_HANG = (0.85, 0.45)     # below z 0.85 the wing hangs back (full at z 0.45): the sheet's side view has ribbons behind the back there
+BODY_GROUPS = ("robe", "pauldron", "trim", "leather")      # what the harness and the wings must stay behind
+WING_GAP_PX = 1.5                                          # gap between the body's back and the front plank tier
+BAR_DEPTH_PX = 3.0                                         # harness bars / rings: thickness along y
+BAR_EMBED_PX = 1.0                                         # ... of which this much reaches into the rear plank tier
 
 
-def _weights(P: dict, side: int):
-    """Chest only, or Chest -> Arm blended over the first 0.1 block around the wing root (raised arms drag the root slightly):
-    the arm share is `wing_arm_weight` (0.5) at the root point and fades to nothing 0.1 block away (nearest feathers: the hidden
-    root covert and the inner white coverts, behind the pauldron). side +1 = right wing (Arm_R), -1 = left wing (Arm_L)."""
+def back_planes(m: K.Model, P: dict = None) -> dict:
+    """Depth planes behind the body (blocks, y). `body` = back-most point of the torso / sleeves / pauldrons at shoulder-blade height
+    (z 1.15 .. 1.45, |x| <= 0.5), read from the model built so far (so the wings follow the body when the body changes); `yoke` = front
+    face of the harness yoke (half a pixel behind it); `wing` = front face of the front-most plank tier (a gap of `wing_gap_px` behind
+    the body); `rear` = back face of the deepest tier; `bar` = centre of the harness bars and rings, which sit on the rear of the wing
+    (the reference shows the grey bars lying OVER the iridescent back of the wing and hides them from the front)."""
+    P = P or {}
+    ys = []
+    for rec in m.recs:
+        if rec["g"] not in BODY_GROUPS:
+            continue
+        for i in (rec["vis"] if rec["k"] == "poly" else [v for r in rec["rings"] for v in r]):
+            x, y, z = m.pos[i]
+            if abs(x) <= 0.5 and 1.15 <= z <= 1.45:
+                ys.append(y)
+    body = min(ys) if ys else -0.066
+    wing = body - float(P.get("wing_gap_px", WING_GAP_PX)) * PIXEL
+    rear = wing - px((len(ROWS) - 1) * STEP_PX + PHASE_PX + THICK_PX)
+    return {"body": body, "yoke": body - 0.5 * PIXEL, "wing": wing, "rear": rear, "bar": rear + px(BAR_EMBED_PX - BAR_DEPTH_PX / 2.0)}
+
+
+def root_point(P: dict = None):
+    """The wing root in the right-wing frame (x, z) blocks: where the wing meets the shoulder blade (skinning anchor of `wing_weight`)."""
+    return (px(YOKE_U), px(46.0))
+
+
+def _weights(P: dict, side: int, y: float):
+    """Chest only, or Chest -> Arm blended over the first 0.1 block around the wing root (side +1 = right wing, Arm_R)."""
     if str(P.get("wing_weight", "chest")).lower() != "shoulder":
         return "Chest"
     arm_w = float(P.get("wing_arm_weight", 0.5))
     arm = "Arm_R" if side > 0 else "Arm_L"
-    rx, ry, rz = side * R.x(WING_ROOT_PX[0]), Y_FRONT, R.z(WING_ROOT_PX[1])
+    rx, rz = root_point(P)
+    rx = side * rx
 
     def rule(p):
-        d = math.sqrt((p[0] - rx) ** 2 + (p[1] - ry) ** 2 + (p[2] - rz) ** 2)
+        d = math.sqrt((p[0] - rx) ** 2 + (p[1] - y) ** 2 + (p[2] - rz) ** 2)
         a = arm_w * (1.0 - K.smoothstep(0.0, 0.10, d))
         return {"Chest": 1.0 - a, arm: a}
     return rule
 
 
-def _build_wing(m: K.Model, P: dict, tab: dict, side: int) -> None:
-    """One wing from the tables `tab`; side +1 = character's right (+x), -1 = left (x negated, joints _L)."""
-    spread = float(P.get("wing_spread", 1.0))
-    curl = float(P.get("wing_curl", 1.0))
+def plank_outline_3d(f: dict, y0: float, spread: float = 1.0, back: float = 0.0, pitch: float = 0.0, side: int = 1):
+    """Front-face outline (3D points) of a plank dict of `layout`: x = side * U, z = Z (blocks), y = `y0` (the tier plane) minus the
+    sweep (`back` per block of U at the plank centre) and the pitch (tips lean back, `pitch` blocks per block of height)."""
+    pts = f["poly"]
+    uc = sum(p[0] for p in pts) / len(pts)
+    ztop = max(p[1] for p in pts)
+    yy = y0 - back * max(uc - SPINE_U, 0.0) * PIXEL * spread
+    return [(side * u * PIXEL * spread, yy - pitch * (ztop - z) * PIXEL, z * PIXEL) for u, z in pts]
+
+
+def tier_y(planes: dict, f: dict) -> float:
+    """Front plane of a plank: its tier's depth, odd planks of a tier a quarter pixel deeper."""
+    return planes["wing"] - px(ROWS.index(f["row"]) * STEP_PX + (PHASE_PX if f["j"] % 2 else 0.0))
+
+
+def _build_wing(m: K.Model, P: dict) -> None:
     dens = float(P.get("wing_density", 1.0))
-    back = float(P.get("wing_back", 0.02))       # rearward slide per block of lateral distance from the spine
-    sweep = float(P.get("wing_sweep", 0.09))     # extra rearward hang of the lower wing
-    shift = float(P.get("wing_shift", SHIFT_PX))
-
-    def base_y(x, z):
-        return Y_FRONT - back * max(abs(x) - X_SPINE, 0.0) - sweep * K.smoothstep(Z_HANG[0], Z_HANG[1], z)
-
-    def px_x(px):
-        return side * (X_SPINE + (R.x(px - shift) - X_SPINE) * spread)
-
-    weights = _weights(P, side)
-    feathers = assign_depth(layout_px(P, tab))
-    pstep = min(PHASE_STEP, 0.75 * LAYER_STEP / max(1, max(f["phase"] for f in feathers if "phase" in f)))   # phases never reach a full layer
-    for f in feathers:
-        group = GROUP[f["row"]]
-        if "cap" in f:
-            x0, y0, x1, y1 = f["cap"]
-            xa, xb = sorted((px_x(x1), px_x(x0)))
-            yc = base_y((xa + xb) / 2.0, R.z((y0 + y1) / 2.0))
-            K.block(m, (xa, yc + CAP_DEPTH[1], R.z(y1)), (xb, yc + CAP_DEPTH[0], R.z(y0)), group, weights, density=dens)
-            continue
-        npt = len(f["pts"])
-        path = []
-        for k, (px, py) in enumerate(f["pts"]):
-            x, z = px_x(px), R.z(py)
-            arch = -0.012 * curl * math.sin(math.pi * k / float(npt - 1))
-            path.append((x, base_y(x, z) - f["front"][k] * LAYER_STEP - f["phase"] * pstep + arch, z))
-        w = f["w"] * R.k
-        thick = [THICK[f["row"]]] * npt
-        if f["row"] == "a":     # thicker towards the cap; the front face stays planar (the extra thickness grows backwards)
-            for k in range(npt):
-                t = THICK["a"] + (A_ROOT_THICK - THICK["a"]) * (1.0 - K.smoothstep(0.0, 0.66, k / float(npt - 1)))
-                thick[k] = t
-                path[k] = (path[k][0], path[k][1] - (t - THICK["a"]) / 2.0, path[k][2])
-        K.sweep(m, path, [w * 0.9] + [w] * (npt - 1), thick, group, weights, side=(1.0, 0.0, 0.0), density=dens)
+    spread = float(P.get("wing_spread", 1.0))
+    back = float(P.get("wing_back", 0.05))
+    pitch = float(P.get("wing_pitch", 0.05))
+    planes = back_planes(m, P)
+    weights = _weights(P, 1, planes["wing"])
+    depth = (0.0, -px(THICK_PX), 0.0)
+    for f in layout(P):
+        up = (f["up"][0], 0.0, f["up"][1])
+        K.prism(m, plank_outline_3d(f, tier_y(planes, f), spread, back, pitch), depth, GROUP[f["row"]], weights, up=up, density=dens)
 
 
 def add(m: K.Model, P: dict) -> None:
     if not P.get("wings", True):
         return
     mk = m.mark()
-    _build_wing(m, P, WING_R, 1)
-    if P.get("wing_symmetric", False):
-        m.mirror(mk)                      # exact mirror of the right wing (the compromise between the sheet's two wings)
-    else:
-        _build_wing(m, P, WING_L, -1)     # the character-left wing, fitted to its own (wider) outline
+    _build_wing(m, P)
+    m.mirror(mk)

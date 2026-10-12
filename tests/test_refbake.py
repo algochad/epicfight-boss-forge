@@ -185,6 +185,33 @@ class Exactness(unittest.TestCase):
             self.assertEqual(whole.get(x + i, y + j)[:3], avg(px, py, 0, 4))
             self.assertEqual(inner.get(x + i, y + j)[:3], avg(px, py, 1, 3))  # the central 2x2 of the 4x4 pixels
 
+    def test_sample_center_reads_the_one_reference_pixel_at_the_texel_centre(self):
+        b = Boxes(density=8).add("a", (-1.0, 0.0, -0.5), (2.0, 2.0, 1.0))  # texel = 2x2 reference pixels
+        canvas, _ = paint(b, bake({"front": view("front")}, smear=False, sample="center"))
+        x, y, w, h = face_texels(b, "a", "front")
+        for j, i in ((0, 0), (3, 5), (15, 15), (7, 9)):
+            # the centre of texel (i, j) is the corner shared by 4 pixels; the pixel after the corner is the one read
+            self.assertEqual(canvas.get(x + i, y + j)[:3], pat_a(16 + 2 * i + 1, 16 + 2 * j + 1))
+
+    def test_snap_moves_the_sample_to_the_middle_of_the_art_pixel(self):
+        b = Boxes(density=8).add("a", (-1.0, 0.0, -0.5), (2.0, 2.0, 1.0))
+        b.build()
+        x, y, w, h = face_texels(b, "a", "front")
+        center, _ = paint(b, bake({"front": view("front")}, smear=False, sample="center", snap=4))
+        mean, _ = paint(b, bake({"front": view("front")}, smear=False, snap=4))
+        shifted, _ = paint(b, bake({"front": view("front")}, smear=False, sample="center", snap=4, snap_origin=[2, 2]))
+        for j, i in ((0, 0), (3, 5), (15, 15), (7, 9)):
+            cx, cy = 16 + 2 * i + 1, 16 + 2 * j + 1
+            kx, ky = cx // 4, cy // 4  # art pixels are 4 x 4 reference pixels from (0, 0): the middle pixel of the cell is 4k + 2
+            self.assertEqual(center.get(x + i, y + j)[:3], pat_a(4 * kx + 2, 4 * ky + 2))
+            pix = [pat_a(4 * kx + dx, 4 * ky + dy) for dx in range(4) for dy in range(4)]
+            self.assertEqual(mean.get(x + i, y + j)[:3], tuple(int(sum(p[c] for p in pix) / 16.0 + 0.5) for c in range(3)))  # the whole art pixel
+            sx, sy = (cx - 2) // 4, (cy - 2) // 4  # a grid shifted by (2, 2)
+            self.assertEqual(shifted.get(x + i, y + j)[:3], pat_a(4 * sx + 2 + 2, 4 * sy + 2 + 2))
+        # texels of one art pixel share its colour: texel centres 25 and 27 both fall in the cell 24..27
+        self.assertEqual(center.get(x + 4, y + 4), center.get(x + 5, y + 5))
+        self.assertNotEqual(center.get(x + 4, y + 4), center.get(x + 6, y + 6))
+
     def test_rotated_box_texels_follow_the_projected_parallelogram(self):
         # a gradient image is reproduced by the box filter wherever the footprint is centred on the texel centre
         def grad(px, py):
@@ -515,7 +542,8 @@ class Validation(unittest.TestCase):
     def test_defaults(self):
         cfg = refbake.normalize_bake({}, ["back", "left", "front"])
         self.assertEqual(cfg, {"views": ["front", "back", "left"], "min_facing": 0.5, "depth_tolerance": 0.06, "smear": True, "palette": 0,
-                               "regions": ["*"], "exclude": [], "order": "last", "blend": 1.0, "footprint": 1.0})
+                               "regions": ["*"], "exclude": [], "order": "last", "blend": 1.0, "footprint": 1.0, "sample": "footprint", "snap": 0,
+                               "snap_origin": [0.0, 0.0]})
 
     def test_plan_for_needs_the_views_it_names(self):
         n = {"reference": {"views": {"front": {}}, "bake": {"views": ["back"]}}, "_views": {"front": view("front")}}

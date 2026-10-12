@@ -1,0 +1,9 @@
+; Cream crest on the belly (tabard top), 7x7: two bars with serifs that close in a stepped cup.
+@# #fff8e0
+##...##
+.#...#.
+.##.##.
+.#...#.
+.##.##.
+..###..
+...#...

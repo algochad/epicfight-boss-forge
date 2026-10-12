@@ -32,9 +32,11 @@ FACTIONS = ("neutral", "undead", "blaze", "enderman", "illager", "piglins", "wit
 BODY_TEMPLATES = ("auto", "biped", "iron_golem")
 REGION_KEYS = ("head", "torso", "arm_l", "arm_r", "leg_l", "leg_r", "hands", "feet", "arms", "legs")
 MATERIALS = ("skin", "skin_soft", "hair", "hair_soft", "plate_steel", "plate_gold", "leather", "chainmail", "cloth", "silk", "lace",
-             "silk_feather", "fur", "bone", "stone", "scales", "ember")
+             "silk_feather", "fur", "bone", "stone", "scales", "ember", "iridescent")
+QUALITIES = ("smooth", "pixel")  # `quality` of a region / group / overlay entry / repaint, and appearance.texture.quality
 FEATURE_TYPES = ("eyes", "brow", "scar", "hair", "beard", "emblem", "trim", "plates", "cracks", "wear", "runes", "stripes",
-                 "filigree", "gradient", "mouth", "blush", "bangs", "repaint", "sparkle")
+                 "filigree", "gradient", "mouth", "blush", "bangs", "repaint", "sparkle", "decal", "iridescent", "posterize",
+                 "palette_snap", "bevel")
 PALETTE_KEYS = ("primary", "secondary", "accent", "skin", "hair", "eyes")
 ABILITY_TYPES = ("on_hit_effect", "aura", "summon", "regen", "enrage")
 TRIGGERS = ("summon_item", "command", "natural_spawn", )
@@ -66,7 +68,14 @@ FEATURE_ENUMS = {
                  "size": ("auto", "small", "large"), "anchor": ("center", "top", "bottom")},
     "mouth": {"style": ("small", "smile", "line")},
     "bangs": {"part": ("center", "left", "right", "none"), "material": ("hair", "hair_soft")},
-    "gradient": {"curve": ("smooth", "linear")},
+    "gradient": {"curve": ("smooth", "linear"), "space": ("local", "world"), "axis": ("x", "y", "z")},
+    "repaint": {"quality": QUALITIES},
+    "decal": {"anchor": ("center", "top", "bottom", "left", "right", "top_left", "top_right", "bottom_left", "bottom_right", "head_front"),
+              "mirror": ("auto", "none", "flip"), "blend": ("opaque", "multiply"), "scope": ("island", "union"),
+              "repeat": ("x", "y", "xy"), "fit": ("none", "inside"), "align": ("upright", "island")},
+    "iridescent": {"mode": ("mix", "tint")},
+    "bevel": {"mode": ("shade", "outline")},
+    "posterize": {"mode": ("luma", "rgb")},
 }
 SERIES_DEFAULT_PHASES = {"combo": "all", "heavy": "from2", "special": "last", "smash": "all"}
 
@@ -291,7 +300,7 @@ def normalize_weapon(w: dict, palette: Optional[dict] = None, tier: Optional[str
         "length": float(ap.get("length", 1.0)),
         "width": float(ap.get("width", 1.0)),
     }
-    for k in ("resolution", "rings", "spikes"):
+    for k in ("resolution", "rings", "spikes", "frame"):
         if k in ap:
             out["appearance"][k] = ap[k]
     effects = []
@@ -694,14 +703,17 @@ def validate_weapon(errs: List[Err], path: str, w: Any, palette: Optional[dict] 
             _check_enum(errs, path + "/appearance/pommel_shape", ap["pommel_shape"], POMMEL_SHAPES)
         if "length" in ap:
             _check_range(errs, path + "/appearance/length", ap["length"], 0.8, 1.15)
+        if "frame" in ap:
+            _check_range(errs, path + "/appearance/frame", ap["frame"], 0.7, 1.3)
         if "width" in ap:
             _check_range(errs, path + "/appearance/width", ap["width"], 0.7, 1.4)
+    from . import holdpose, sprites  # local imports: both import this module
+    staff = sprites.is_staff(w.get("category"), ap if isinstance(ap, dict) else None)
     if "visual_scale" in w:
-        _check_range(errs, path + "/visual_scale", w["visual_scale"], 0.4, 1.5)
+        _check_range(errs, path + "/visual_scale", w["visual_scale"], 0.25 if staff else 0.4, 1.5)  # a staff can be a short sceptre
     if "hold" in w:
-        from . import holdpose, sprites  # local imports: both import this module
-        if not sprites.is_staff(w.get("category"), ap if isinstance(ap, dict) else None):
-            errs.append(Err(path + "/hold", "hold_not_applicable", "hold places a staff in the hand and only applies to category spear with shape crystal_staff or orb_staff"))
+        if not staff:
+            errs.append(Err(path + "/hold", "hold_not_applicable", "hold places a staff in the hand and only applies to category spear with shape %s" % " or ".join(sprites.STAFF_SHAPES)))
         else:
             errs.extend(Err(p, c, m) for p, c, m in holdpose.check_hold(w["hold"], path + "/hold"))
     for i, e in enumerate(w.get("effects") or []):
@@ -927,7 +939,16 @@ FEATURE_NUMBERS = {
     "filigree": {"cell": (0, 8, True), "inset": (0, 8, True), "texture": (0, 1, False), "cx": (0, 1, False),
                  "cy": (0, 1, False), "width": (0.1, 1, False), "height": (0.1, 1, False),
                  "motif_height": (0.2, 1, False), "lo": (0, 1, False), "hi": (0, 1, False)},
-    "gradient": {"lo": (0, 1, False), "hi": (0, 1, False), "amount": (0, 1, False), "texture": (0, 1, False)},
+    "gradient": {"lo": (0, 1, False), "hi": (0, 1, False), "amount": (0, 1, False), "texture": (0, 1, False), "steps": (2, 32, True),
+                 "dither": (0, 1, False), "block": (0.05, 8, False), "lo_x": (-64, 64, False), "hi_x": (-64, 64, False),
+                 "lo_y": (-64, 64, False), "hi_y": (-64, 64, False), "lo_z": (-64, 64, False), "hi_z": (-64, 64, False)},
+    "decal": {"opacity": (0, 1, False), "gap": (0, 64, True), "count": (1, 64, True)},
+    "iridescent": {"strength": (0, 1, False), "scale": (0.02, 64, False), "normal": (0, 1, False), "steps": (0, 64, True),
+                   "dither": (0, 1, False), "offset": (0, 1, False), "block": (0.05, 8, False)},
+    "posterize": {"levels": (2, 32, True), "dither": (0, 1, False)},
+    "palette_snap": {"colors": (2, 64, True), "dither": (0, 1, False)},
+    "bevel": {"top": (-1, 1, False), "bottom": (-1, 1, False), "left": (-1, 1, False), "right": (-1, 1, False), "width": (1, 2, True),
+              "min_size": (1, 32, True), "amount": (0, 1, False)},
     "mouth": {"y": (0.5, 0.95, False), "width": (0.05, 0.4, False)},
     "blush": {"amount": (0, 1, False), "size": (0.5, 2, False), "y": (0.4, 0.95, False)},
     "bangs": {"depth": (0.12, 0.42, False), "clear": (0.15, 0.6, False), "lock_width": (0.04, 0.25, False),
@@ -940,7 +961,8 @@ FEATURE_NUMBERS = {
 }
 FACE_NAMES = ("front", "back", "left", "right", "side", "sides")
 FEATURE_FACES = {"filigree": FACE_NAMES, "gradient": FACE_NAMES + ("top", "bottom"), "repaint": FACE_NAMES + ("top", "bottom"),
-                 "sparkle": FACE_NAMES}
+                 "sparkle": FACE_NAMES, "decal": FACE_NAMES + ("top", "bottom"), "iridescent": FACE_NAMES + ("top", "bottom"),
+                 "posterize": FACE_NAMES + ("top", "bottom"), "palette_snap": FACE_NAMES + ("top", "bottom"), "bevel": FACE_NAMES + ("top", "bottom")}
 PANEL_SIDES = ("top", "bottom", "left", "right")
 
 
@@ -1008,6 +1030,103 @@ def _check_feature_params(errs, p, t, f):
         _check_enum(errs, p + "/face", f["face"], FEATURE_FACES[t])
 
 
+def _check_color_list(errs, path, v, npal, lo=1, hi=64):
+    if not isinstance(v, list) or not lo <= len(v) <= hi:
+        errs.append(Err(path, "bad_type", "expected a list of %d..%d colours (palette keys or #rrggbb), got %r" % (lo, hi, v)))
+        return
+    for i, c in enumerate(v):
+        _check_color(errs, "%s/%d" % (path, i), c, npal)
+
+
+def _check_new_feature_params(errs, p, t, f, n):
+    """Parameters of `decal`, `gradient` (world space, stops), `iridescent`, `posterize`, `palette_snap`. Codes: required, bad_type,
+    out_of_range, bad_color, unknown_value, needs_world_space, decal_missing_file, decal_bad_bitmap, decal_bad_palette."""
+    npal = n["appearance"]["palette"]
+    if t == "decal":
+        from . import decal as _decal
+        if not f.get("region") and not f.get("regions") and f.get("anchor") != "head_front":
+            errs.append(Err(p, "required", "a decal needs a target: region / regions (e.g. part:pauldron, torso) or anchor head_front"))
+        if "bitmap" in f and "file" in f:
+            errs.append(Err(p + "/bitmap", "decal_bad_bitmap", "give either `bitmap` (rows) or `file` (decals/<name>.txt), not both"))
+        else:
+            for sub, code, msg in _decal.check_bitmap(f, n.get("_spec_dir")):
+                errs.append(Err(p + sub, code, msg))
+        pal = f.get("palette")
+        if pal is not None:
+            if not isinstance(pal, dict):
+                errs.append(Err(p + "/palette", "bad_type", "palette must map one character to a colour: {\"#\": \"#f3ecd2\", \".\": null}"))
+            else:
+                for ch, v in pal.items():
+                    if not isinstance(ch, str) or len(ch) != 1:
+                        errs.append(Err(p + "/palette", "decal_bad_palette", "palette keys are single characters, got %r" % (ch,)))
+                    elif v is not None and not (isinstance(v, str) and v.strip().lower() in ("", "none")):
+                        _check_color(errs, "%s/palette/%s" % (p, ch), v, npal)
+        sc = f.get("scale")
+        if sc is not None and sc != "auto":
+            _check_range(errs, p + "/scale", sc, _decal.SCALE_RANGE[0], _decal.SCALE_RANGE[1], True)
+        off = f.get("offset")
+        if off is not None:
+            if not (isinstance(off, list) and len(off) == 2 and all(_is_num(v) for v in off)):
+                errs.append(Err(p + "/offset", "bad_type", "offset must be [dx, dy] in texels (dx to the right, dy down)"))
+            else:
+                for k, v in enumerate(off):
+                    _check_range(errs, "%s/offset/%d" % (p, k), v, -512, 512)
+        proj = f.get("project")
+        if proj is not None:
+            pp = p + "/project"
+            if not isinstance(proj, dict):
+                errs.append(Err(pp, "bad_type", "project must be an object {view, at, pixel, facing, depth}"))
+            else:
+                _check_enum(errs, pp + "/view", proj.get("view", "front"), _decal.VIEWS)
+                at = proj.get("at")
+                if at is None:
+                    errs.append(Err(pp + "/at", "required", "project.at = the world position of the bitmap's anchor: [x, y] (front / back), [z, y] (left / right) or [x, z] (top / bottom)"))
+                elif not (isinstance(at, list) and len(at) == 2 and all(_is_num(v) for v in at)):
+                    errs.append(Err(pp + "/at", "bad_type", "project.at must be two numbers (blocks)"))
+                px = proj.get("pixel", "auto")
+                if px != "auto":
+                    _check_range(errs, pp + "/pixel", px, 0.001, 4)
+                for key, lo, hi in (("facing", -1, 1), ("depth", 0, 4)):
+                    if key in proj:
+                        _check_range(errs, "%s/%s" % (pp, key), proj[key], lo, hi)
+                for key in ("fit", "scope", "align", "skip_small", "partial"):
+                    if key in f:
+                        errs.append(Err("%s/%s" % (p, key), "decal_project_conflict", "%s does not apply to a projected decal (it is placed in world space)" % key))
+                if f.get("repeat") and "count" not in f:
+                    errs.append(Err(p + "/count", "required", "a projected decal with `repeat` needs an explicit `count`"))
+    elif t == "gradient":
+        raw = f.get("stops")
+        if raw is not None:
+            if not isinstance(raw, list) or len(raw) < 2:
+                errs.append(Err(p + "/stops", "bad_type", "stops must be a list of at least two [position 0..1, colour] entries"))
+            last = -1.0
+            for k, e in enumerate(raw if isinstance(raw, list) else []):
+                at, col = (e.get("at"), e.get("color")) if isinstance(e, dict) else (e[0], e[1]) if isinstance(e, list) and len(e) == 2 else (None, None)
+                sp = "%s/stops/%d" % (p, k)
+                if not _is_num(at) or at < 0 or at > 1:
+                    errs.append(Err(sp, "out_of_range", "a stop is [position 0..1, colour]"))
+                    continue
+                if at < last:
+                    errs.append(Err(sp, "bad_range", "stops must be sorted by position"))
+                last = at
+                _check_color(errs, sp, col, npal)
+        if f.get("space", "local") != "world":
+            for k in ("lo_x", "hi_x", "lo_y", "hi_y", "lo_z", "hi_z", "axis", "abs", "block"):
+                if k in f:
+                    errs.append(Err("%s/%s" % (p, k), "needs_world_space", "%s only applies with \"space\": \"world\"" % k))
+    elif t == "iridescent":
+        if "palette" in f:
+            _check_color_list(errs, p + "/palette", f["palette"], npal, 2, 16)
+        d = f.get("dir")
+        if d is not None and not (isinstance(d, list) and len(d) == 3 and all(_is_num(v) for v in d) and any(v for v in d)):
+            errs.append(Err(p + "/dir", "bad_type", "dir must be [x, y, z] numbers, not all zero"))
+    elif t == "palette_snap":
+        if "palette" in f:
+            _check_color_list(errs, p + "/palette", f["palette"], npal, 2, 64)
+        elif "colors" not in f:
+            errs.append(Err(p, "required", "palette_snap needs `palette` (colours) or `colors` (a count for median cut)"))
+
+
 def _validate_appearance(errs, warns, ap, n):
     archs = data("archetypes")
     if not isinstance(ap, dict):
@@ -1036,6 +1155,8 @@ def _validate_appearance(errs, warns, ap, n):
         for ck in ("color", "accent"):
             if ck in v:
                 _check_color(errs, p + "/" + ck, v[ck], npal)
+        if "quality" in v:
+            _check_enum(errs, p + "/quality", v["quality"], QUALITIES)
     for i, o in enumerate(ap.get("overlay") or []):
         p = "/appearance/overlay/%d" % i
         if not isinstance(o, dict):
@@ -1049,6 +1170,8 @@ def _validate_appearance(errs, warns, ap, n):
         for ck in ("color", "accent"):
             if ck in o:
                 _check_color(errs, p + "/" + ck, o[ck], npal)
+        if "quality" in o:
+            _check_enum(errs, p + "/quality", o["quality"], QUALITIES)
     for i, f in enumerate(ap.get("features") or []):
         p = "/appearance/features/%d" % i
         if not isinstance(f, dict):
@@ -1066,9 +1189,13 @@ def _validate_appearance(errs, warns, ap, n):
                 _check_color(errs, "%s/%s" % (p, ck), f[ck], npal)
         _check_feature_targets(errs, warns, p, f, n)
         _check_feature_params(errs, p, t, f)
+        _check_new_feature_params(errs, p, t, f, n)
     sc = (ap.get("texture") or {}).get("scale")
     if sc is not None and sc not in (1, 2, 4):
         errs.append(Err("/appearance/texture/scale", "unknown_value", "texture scale must be 1, 2 or 4"))
+    q = (ap.get("texture") or {}).get("quality")
+    if q is not None:
+        _check_enum(errs, "/appearance/texture/quality", q, QUALITIES)
     tpl = n["derived"]["template"]
     if tpl and not n["derived"].get("custom"):
         sc = n["appearance"]["texture"]["scale"]

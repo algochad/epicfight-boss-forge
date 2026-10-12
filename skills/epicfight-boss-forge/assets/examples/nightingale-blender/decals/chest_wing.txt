@@ -1,0 +1,9 @@
+; Pale-blue feather ornament flanking the cross; authored for the character's right side (viewer-left), inner edge on the right.
+; c = feather, h = highlight, s = underside shadow.
+@c #8fd0ee
+@h #eefaff
+@s #4a78a8
+.hhh
+hhcc
+ccc.
+s.s.

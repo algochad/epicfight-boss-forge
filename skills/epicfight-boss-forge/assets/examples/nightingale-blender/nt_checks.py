@@ -20,7 +20,7 @@ POSES = {
     "head_turn_40": [("Head", "Z", 40)],
     "torso_twist_30": [("Torso", "Z", 30)],
 }
-CLOTH = ("skirt", "tabard", "robe", "leather", "vial_g", "vial_v", "vial_r")
+CLOTH = ("skirt", "tabard", "robe", "leather", "vial_g", "vial_v", "vial_r", "lace")
 
 
 def weights_total(built) -> dict:
@@ -38,7 +38,7 @@ def weights_total(built) -> dict:
             "influence_histogram": dict(sorted(hist.items())), "joints": sorted(joints)}
 
 
-SOFT = CLOTH + ("ribbon", "wing_a", "wing_b", "wing_c", "wing_d")
+SOFT = CLOTH + ("ribbon", "wing_a", "wing_b", "wing_c", "wing_d", "harness", "harness_gold")
 
 
 def pose_report(res: dict, poses=None, margin: float = 0.002) -> dict:
@@ -68,8 +68,10 @@ def pose_report(res: dict, poses=None, margin: float = 0.002) -> dict:
                 samples.extend(q)
                 samples.append(K.centroid(q))
                 samples.extend(K.vlerp(q[k], q[(k + 1) % len(q)], 0.5) for k in range(len(q)))
-            hits = K.points_inside(vol, samples, margin=margin, with_depth=True)
-            rep[key] = {"inside": len(hits), "max_depth": round(max((d for _, d in hits), default=0.0), 4), "samples": len(samples)}
+            hits = K.points_inside(vol, samples, margin=margin, with_depth=True, aligned=0.5)
+            raw = K.points_inside(vol, samples, margin=margin)  # nearest-normal test only: includes false hits beside plate corners
+            rep[key] = {"inside": len(hits), "max_depth": round(max((d for _, d in hits), default=0.0), 4), "samples": len(samples),
+                        "inside_raw": len(raw)}
         out[name] = rep
     bfk_rig.reset_pose(arm)
     for vol, _g, _t in volumes.values():

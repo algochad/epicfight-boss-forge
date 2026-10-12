@@ -33,7 +33,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from . import efmesh, efmodel
 from .colors import is_hex
-from .spec import MATERIALS, PALETTE_KEYS, BossForgeError, Err, GenFile, data
+from .spec import MATERIALS, PALETTE_KEYS, QUALITIES, BossForgeError, Err, GenFile, data
 
 Vec = Tuple[float, float, float]
 
@@ -41,7 +41,7 @@ META_SCHEMA = "bossforge-mesh/1"
 EFMESH_SUFFIX = ".efmesh.json"
 META_SUFFIX = ".meshmeta.json"
 MESH_KEYS = ("file", "groups", "texture")
-GROUP_KEYS = ("material", "color", "accent", "region")
+GROUP_KEYS = ("material", "color", "accent", "region", "quality")
 TEXTURE_KEYS = ("size", "density", "padding")
 REGIONS = ("head", "torso", "arm_l", "arm_r", "leg_l", "leg_r")
 GROUP_REGIONS = REGIONS + ("private",)
@@ -175,6 +175,8 @@ def validate_mesh(mesh: Any, spec: dict, n: Optional[dict] = None) -> List[Err]:
                 errs.append(Err(p + "/" + ck, "bad_color", "%s %r must be a palette key (%s) or #rrggbb" % (ck, g[ck], ", ".join(PALETTE_KEYS))))
         if "region" in g and g["region"] not in GROUP_REGIONS:
             errs.append(Err(p + "/region", "unknown_region", "region %r is not allowed; allowed: %s (or omit it: derived from the weights)" % (g["region"], ", ".join(GROUP_REGIONS))))
+        if "quality" in g and g["quality"] not in QUALITIES:
+            errs.append(Err(p + "/quality", "unknown_value", "%r is not allowed; allowed values: %s" % (g["quality"], ", ".join(QUALITIES))))
     tex = mesh.get("texture")
     if tex is not None:
         if not isinstance(tex, dict):
@@ -731,8 +733,8 @@ def _make_model(n: dict, m: dict, b: Bundle, cfg: dict, size: int, density: floa
     part_regions = {}
     for name in b.groups:
         c = cfg.get(name) or {}
-        if any(c.get(k) is not None for k in ("material", "color", "accent")):
-            styles[name] = {"material": c.get("material"), "color": c.get("color"), "accent": c.get("accent")}
+        if any(c.get(k) is not None for k in ("material", "color", "accent", "quality")):
+            styles[name] = {"material": c.get("material"), "color": c.get("color"), "accent": c.get("accent"), "quality": c.get("quality")}
         fixed = group_regions.get(name)
         if fixed is not None:
             part_regions[name] = ("box:" + name) if fixed == "private" else fixed

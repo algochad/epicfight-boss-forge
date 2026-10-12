@@ -51,12 +51,12 @@ HOLD_A: Dict[str, float] = {
 DEFAULT_APPEARANCE = {
     "blade": "#cfd6e4", "guard": "#d4aa32", "grip": "#5a3a22", "accent": "#d4aa32", "gem": "#46a0ff",
     "glow": False, "motif": "fuller", "guard_shape": "bar", "pommel_shape": "disc", "length": 1.0, "width": 1.0,
-    "rings": 2, "spikes": 3,
+    "rings": 2, "spikes": 3, "frame": 1.0,
 }
 
 
 class ShapeError(ValueError):
-    """An appearance option (shape, guard_shape, pommel_shape, length, width, rings, spikes, resolution) is not usable."""
+    """An appearance option (shape, guard_shape, pommel_shape, length, width, frame, rings, spikes, resolution) is not usable."""
 
 
 def _fit_length(length: float, curve: float, margin: float = _TIP_MARGIN) -> float:
@@ -81,7 +81,7 @@ def _resolve_appearance(appearance: Optional[dict], palette: Optional[dict], cat
         raise ShapeError("guard_shape %r is not allowed; allowed values: %s" % (guard, ", ".join(GUARD_SHAPES)))
     if pommel not in POMMEL_SHAPES:
         raise ShapeError("pommel_shape %r is not allowed; allowed values: %s" % (pommel, ", ".join(POMMEL_SHAPES)))
-    for key, lo, hi in (("length", 0.8, 1.15), ("width", 0.7, 1.4)):
+    for key, lo, hi in (("length", 0.8, 1.15), ("width", 0.7, 1.4), ("frame", 0.7, 1.3)):
         v = ap[key]
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
             raise ShapeError("%s %r must be a number in %s..%s" % (key, v, lo, hi))
@@ -530,7 +530,7 @@ def _paint_spear(ap: dict, res: int, seed: int) -> Callable[[int, int], Optional
 
 
 # --------------------------------------------------------------------------------------------- staffs (spear shapes)
-STAFF_SHAPES = ("crystal_staff", "orb_staff")
+STAFF_SHAPES = ("crystal_staff", "orb_staff", "diamond_staff")
 _WHITE = (255, 255, 255)
 # crystal_staff shaft colour segments from the foot upward: (start as a fraction of the shaft, colour key)
 _STAFF_BANDS = ((0.00, "pale"), (0.06, "aqua"), (0.15, "blue"), (0.27, "aqua"), (0.36, "blue"), (0.49, "aqua"),
@@ -732,6 +732,124 @@ def _paint_staff(ap: dict, res: int, seed: int) -> Callable[[int, int], Optional
     return fn
 
 
+# diamond_staff: a slender banded shaft in a gold collar, then an open rhombus frame that is wider than long (light crystal
+# bars on the near two sides, bowed gold bars on the far two) around a bright orb, with a small bead of orb crystal on its
+# far corner
+_DIAMOND_FOOT, _DIAMOND_COLLAR, _DIAMOND_TIP = 1.8, 2.4, 1.2  # ferrule, gold collar and bead protrusion lengths (design px)
+_DIAMOND_HALF_H, _DIAMOND_HALF_W = 6.8, 8.8  # rhombus half axes along / across the staff at frame 1.0
+_DIAMOND_BAND = 2.6  # length of one shaft colour band
+_DIAMOND_BANDS = ("pale", "aqua", "blue", "aqua")
+_DIAMOND_BOW = 1.35  # exponent of the far bars: 1 is straight, larger bows them outward
+
+
+def _diamond_dims(ap: dict) -> Dict[str, float]:
+    """Axial layout of a diamond_staff in design px from the butt: `total` (end of the bead), `foot` (ferrule end), `collar`
+    (start of the gold collar), `bottom` / `top` (the rhombus corners on the axis), `centre` (the orb) and `half_h` (rhombus
+    half height). The head keeps its size when `length` changes: only the shaft stretches."""
+    total = min(_fit_length(44.0, 0.0) * ap["length"], _fit_length(1e9, 0.0, _MAX_TIP_MARGIN))
+    half_h = _DIAMOND_HALF_H * ap["frame"]
+    top = total - _DIAMOND_TIP
+    centre = top - half_h
+    bottom = centre - half_h
+    collar = max(bottom - 0.6 - _DIAMOND_COLLAR, _DIAMOND_FOOT + 3.0)
+    return {"total": total, "foot": _DIAMOND_FOOT, "collar": collar, "bottom": bottom, "top": top, "centre": centre,
+            "half_h": half_h}
+
+
+def _paint_diamond_staff(ap: dict, res: int, seed: int) -> Callable[[int, int], Optional[RGB]]:
+    """diamond_staff: banded shaft with a gold collar and foot ferrule (`rings` adds thin gold rings), a rhombus frame
+    (faceted crystal bars on the two near sides, thicker bowed gold bars on the two far sides, light on the up-left),
+    a bright faceted `gem` orb in its middle held by a thin crystal spine, and a small `gem` bead on the far corner.
+    The frame is open: the triangles between orb, spine and bars are see-through. Every part is at least ~1 px wide
+    so the sprite stays one connected piece at any resolution."""
+    s = 32.0 / res
+    hmin = 0.55 * s
+    wf = _width_factor(ap["width"], res)
+    rings = ap["rings"]
+    d = _diamond_dims(ap)
+    total, foot, collar, bottom, centre, hh = (d[k] for k in ("total", "foot", "collar", "bottom", "centre", "half_h"))
+    room = min(_OY / -_D[1] - centre, _OX / _D[0] + centre)  # canvas room either side of the axis at the orb
+    ww = min(_DIAMOND_HALF_W * ap["frame"] * wf ** 0.6, room - 1.8)  # rhombus half width
+    t_crystal = max(1.6 * wf, 1.0 * s)  # thickness of the near (crystal) bars
+    t_gold = max(2.1 * wf, 1.25 * s)  # thickness of the far (gold) bars
+    spine_hw = max(0.7 * wf, 1.3 * hmin)
+    orb_r = max(0.40 * ww, 1.6 * s)
+    bead_r = max(1.5, 1.6 * hmin)
+    bead_c = hh + _DIAMOND_TIP - bead_r
+    pal = {
+        "pale": mix(ap["grip"], _WHITE, 0.62),
+        "aqua": mix(mix(ap["grip"], ap["blade"], 0.35), (70, 225, 215), 0.45),
+        "blue": shade(ap["grip"], 0.85),
+        "silver": mix((150, 156, 170), ap["blade"], 0.15),
+    }
+    shaft_hw = max(1.25 * wf, 1.4 * hmin)
+    shaft_l = collar - foot
+    mids = {3: (0.5,), 4: (0.34, 0.67)}.get(rings, ())
+    guard_dark = shade(ap["guard"], 0.5)
+
+    def metal(on: bool, f: float) -> RGB:
+        return _gold(ap, f) if on else mix(shade(pal["silver"], 0.7), pal["silver"], f)
+
+    def head(a: float, b: float, x: int, y: int) -> Optional[RGB]:
+        da = a - centre
+        if math.hypot(da, b) <= orb_r:
+            return _orb(ap, da, b, orb_r)
+        if math.hypot(da - bead_c, b) <= bead_r:
+            return _orb(ap, da - bead_c, b, bead_r)
+        if abs(b) <= spine_hw and -hh - 0.6 <= da <= bead_c:
+            return mix(shade(ap["blade"], 0.8), mix(ap["blade"], _WHITE, 0.45), _clamp01(0.5 - 0.5 * b / spine_hw))
+        u, v = abs(da) / hh, abs(b) / ww
+        if da > 0.0:  # far side: bowed gold bar
+            k = u ** _DIAMOND_BOW + v ** _DIAMOND_BOW
+            grad = math.hypot(_DIAMOND_BOW * u ** (_DIAMOND_BOW - 1.0) / hh, _DIAMOND_BOW * v ** (_DIAMOND_BOW - 1.0) / ww)
+            dist = (1.0 - k) / grad if grad > 1e-9 else 1e9
+            if 0.0 <= dist <= t_gold:
+                col = _gold(ap, _clamp01(0.5 - 0.40 * b / ww + 0.10 * da / hh))
+                if dist < 0.32 * t_gold:
+                    col = mix(col, guard_dark, 0.35)
+                return mix(col, _WHITE, 0.45) if hash01(x, y, 11, seed) > 0.93 else col
+            return None
+        grad = math.hypot(1.0 / hh, 1.0 / ww)  # near side: straight crystal bar
+        dist = (1.0 - u - v) / grad
+        if 0.0 <= dist <= t_crystal:
+            e = dist / t_crystal  # 0 on the outer rim, 1 on the inner rim
+            uu = -0.85 + 0.9 * e if b < 0.0 else -0.15 + 0.85 * e
+            return _crystal(ap, uu, -0.06, x, y, seed)
+        return None
+
+    def fn(x: int, y: int) -> Optional[RGB]:
+        a, b = _ab(x, y, s)
+        if a < 0.0 or a > total:
+            return None
+        ab = abs(b)
+        if a >= bottom - 1.0:
+            col = head(a, b, x, y)
+            if col is not None:
+                return col
+        if a < foot:
+            hw = max((0.8 + 0.5 * min(1.0, a / 0.9)) * wf, hmin * 1.4)
+            return metal(rings >= 2, _clamp01(0.5 - 0.5 * b / hw)) if ab <= hw else None
+        if a < collar:
+            ringed = (a < foot + 0.7 and rings >= 2) or any(abs(a - (foot + p * shaft_l)) <= 0.55 for p in mids)
+            hw = shaft_hw + (0.3 * wf if ringed else 0.0)
+            if ab > hw:
+                return None
+            if ringed:
+                return _gold(ap, _clamp01(0.5 - 0.5 * b / hw))
+            base = pal[_DIAMOND_BANDS[int((a - foot) / _DIAMOND_BAND) % len(_DIAMOND_BANDS)]]
+            return mix(shade(base, 0.7), mix(base, _WHITE, 0.1), _clamp01(0.5 - 0.5 * b / hw))
+        if a < bottom + 0.8:
+            u = (a - collar) / max(bottom + 0.8 - collar, 1e-6)
+            hw = max((1.75 + 0.3 * u) * wf, hmin * 1.4)
+            if ab > hw:
+                return None
+            col = metal(rings >= 1, _clamp01(0.5 - 0.45 * b / hw))
+            return shade(col, 0.78) if u < 0.2 else col
+        return None
+
+    return fn
+
+
 # --------------------------------------------------------------------------------------------- post passes
 _NEIGH = ((-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1))
 
@@ -761,10 +879,21 @@ def hold_point(category: str) -> Tuple[float, float]:
 
 # the hand grips a staff this far up its axis (fraction of the axis from the pommel); 0.40 is the spear's grip point
 STAFF_GRIP = 0.40
+# a staff is `visual_scale` stock biped heights (1.8 blocks) long in the hand
+STAFF_SCALE = 1.0
+# shapes with their own defaults: the diamond staff is a short sceptre whose head is about half its length, so the hand
+# holds the shaft near the butt and it is 0.3 biped heights (0.54 blocks) long: the reference staff measures 0.5-0.65 blocks
+_STAFF_DEFAULTS = {"diamond_staff": {"grip": 0.26, "visual_scale": 0.30}}
+
+
+def staff_default(appearance: Optional[dict], key: str) -> float:
+    """Default `grip` (fraction of the axis from the butt) or `visual_scale` of the staff shape in `appearance`."""
+    base = {"grip": STAFF_GRIP, "visual_scale": STAFF_SCALE}[key]
+    return _STAFF_DEFAULTS.get((appearance or {}).get("shape"), {}).get(key, base)
 
 
 def is_staff(category: str, appearance: Optional[dict]) -> bool:
-    """True for the spear-category staff shapes (`crystal_staff`, `orb_staff`)."""
+    """True for the spear-category staff shapes (`crystal_staff`, `orb_staff`, `diamond_staff`)."""
     return category == "spear" and (appearance or {}).get("shape") in STAFF_SHAPES
 
 
@@ -773,18 +902,25 @@ def staff_geometry(appearance: Optional[dict]) -> Dict[str, object]:
     y up; 1.0 = the full width of the model quad).
 
     Keys: `butt` and `tip` (x, y) at the two ends of the axis, `length` (axis length in quad widths, i.e. 1.0 would be
-    the full square side), `orb` (x, y) centre of the orb and `axis` the unit direction butt -> tip. The axis runs up-right
-    at 45 degrees, the same diagonal Epic Fight's own spear sprite uses. `appearance` needs `shape` and may carry `length`."""
+    the full square side), `orb` (x, y) centre of the orb (the middle of the frame for `diamond_staff`) and `axis` the unit
+    direction butt -> tip. The axis runs up-right at 45 degrees, the same diagonal Epic Fight's own spear sprite uses.
+    `appearance` needs `shape` and may carry `length` (and `frame` for `diamond_staff`)."""
     ap = dict(DEFAULT_APPEARANCE)
     ap.update(appearance or {})
     if ap.get("shape") not in STAFF_SHAPES:
         raise ValueError("%r is not a staff shape; allowed: %s" % (ap.get("shape"), ", ".join(STAFF_SHAPES)))
-    length = ap["length"]
-    if isinstance(length, bool) or not isinstance(length, (int, float)) or not 0.8 <= length <= 1.15:
-        raise ShapeError("length %r must be a number in 0.8..1.15" % (length,))
-    total, foot_l, band_l, collar_l, cluster_l, zone_h, spire_l, shaft_l = _staff_dims({"shape": ap["shape"], "length": float(length)})
-    tip_a = foot_l + band_l + shaft_l + collar_l + cluster_l + zone_h + spire_l
-    orb_a = foot_l + band_l + shaft_l + collar_l + cluster_l + zone_h / 2.0
+    for key, lo, hi in (("length", 0.8, 1.15), ("frame", 0.7, 1.3)):
+        v = ap[key]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
+            raise ShapeError("%s %r must be a number in %s..%s" % (key, v, lo, hi))
+    if ap["shape"] == "diamond_staff":
+        d = _diamond_dims({"length": float(ap["length"]), "frame": float(ap["frame"])})
+        tip_a, orb_a = d["total"], d["centre"]
+    else:
+        total, foot_l, band_l, collar_l, cluster_l, zone_h, spire_l, shaft_l = _staff_dims(
+            {"shape": ap["shape"], "length": float(ap["length"])})
+        tip_a = foot_l + band_l + shaft_l + collar_l + cluster_l + zone_h + spire_l
+        orb_a = foot_l + band_l + shaft_l + collar_l + cluster_l + zone_h / 2.0
 
     def item(a: float) -> Tuple[float, float]:
         px, py = _point(a, 0.0)
@@ -814,9 +950,9 @@ def render_weapon(category: str, appearance: Optional[dict], res: int, seed: int
     """Render one weapon sprite (res 16 or 32; 64 for the staff shapes). Colours may be #rrggbb or keys of `palette`.
 
     Appearance options beyond colours: shape (per category, see weapon-categories.json), guard_shape, pommel_shape,
-    length (0.8-1.15), width (0.7-1.4) and, for the staff shapes, rings (0-4) and spikes (2-5). `res` is the size to
-    draw; callers take it from `sprite_resolution`. Invalid values raise ShapeError (a ValueError); bad colours raise
-    ValueError.
+    length (0.8-1.15), width (0.7-1.4) and, for the staff shapes, rings (0-4), spikes (2-5; not used by diamond_staff) and
+    frame (0.7-1.3, the size of the diamond_staff's rhombus head). `res` is the size to draw; callers take it from
+    `sprite_resolution`. Invalid values raise ShapeError (a ValueError); bad colours raise ValueError.
     """
     if category not in CATEGORIES:
         raise ValueError("unknown weapon category %r; allowed: %s" % (category, ", ".join(CATEGORIES)))
@@ -828,6 +964,8 @@ def render_weapon(category: str, appearance: Optional[dict], res: int, seed: int
             category, ap["shape"], ", ".join(str(v) for v in weapon_resolutions(category, ap["shape"]))))
     if category == "axe":
         fn = _paint_axe(ap, res, seed)
+    elif category == "spear" and ap["shape"] == "diamond_staff":
+        fn = _paint_diamond_staff(ap, res, seed)
     elif category == "spear" and ap["shape"] in STAFF_SHAPES:
         fn = _paint_staff(ap, res, seed)
     elif category == "spear":

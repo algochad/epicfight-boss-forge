@@ -209,6 +209,25 @@ class CustomShapePipelineTests(unittest.TestCase):
         finally:
             shutil.rmtree(str(tmp), ignore_errors=True)
 
+    def test_decal_files_are_staged_next_to_the_project_spec_copy(self):
+        """`decal` features read their bitmap `file` relative to the spec: the project copy of the spec lives in
+        bossforge/bosses/, so the bitmaps must be copied to bossforge/decals/ and the paths rewritten."""
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            (tmp / "decals").mkdir()
+            (tmp / "decals" / "face.txt").write_text("@# #ffffff\n#.#\n", encoding="utf-8")
+            spec_path = tmp / "boss.json"
+            spec_path.write_text(json.dumps({"appearance": {"features": [
+                {"type": "decal", "file": "decals/face.txt"}, {"type": "eyes"}]}}), encoding="utf-8")
+            data, files = scaffold._stage_references(spec_path.read_bytes(), spec_path)
+            self.assertEqual(["bossforge/decals/face.txt"], [f.relpath for f in files])
+            self.assertEqual(b"@# #ffffff\n#.#\n", files[0].data)
+            feats = json.loads(data.decode("utf-8"))["appearance"]["features"]
+            self.assertEqual("../decals/face.txt", feats[0]["file"])
+            self.assertEqual({"type": "eyes"}, feats[1])
+        finally:
+            shutil.rmtree(str(tmp), ignore_errors=True)
+
     def test_reference_images_are_staged_into_the_project_and_survive_regeneration(self):
         """The project copy of a spec lives in bossforge/bosses/, so its reference images must be copied to
         bossforge/refs/ with rewritten paths; otherwise qa and regeneration cannot find them."""

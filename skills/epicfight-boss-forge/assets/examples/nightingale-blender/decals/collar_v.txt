@@ -1,0 +1,6 @@
+; Collar front: blue band with a V opening on the neck (skin) and a cream tip, 8 x 2 (projected from the front).
+@B #6a9acf
+@n #f0b896
+@c #fff8e0
+BBnnnnBB
+BBBccBBB

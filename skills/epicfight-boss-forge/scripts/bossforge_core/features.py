@@ -12,7 +12,7 @@ import fnmatch
 import math
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from . import colors, ornament
+from . import colors, decal as decal_mod, ornament, pixelart
 from .materials import MATERIAL_FUNCS, Texel, plate_gold, shade_texel
 from .noise import fbm, hash01, vnoise, worley
 
@@ -63,6 +63,7 @@ class RegionSel:
         self.parts = []  # type: List[str]
         self.hands = False
         self.feet = False
+        self._memo = {}  # type: Dict[Tuple[Optional[str], str], bool]  # (region, part) -> glob / part verdict
         for n in expand_regions(names):
             if n == "hands":
                 self.hands = True
@@ -83,13 +84,17 @@ class RegionSel:
             return True
         if self.feet and r in LEG_REGIONS and t.ly < FEET_MAX_LY:
             return True
-        if self.globs and r is not None and r.startswith("box:"):
-            for g in self.globs:
-                if fnmatch.fnmatchcase(r, g):
-                    return True
-        for g in self.parts:
-            if fnmatch.fnmatchcase(t.part, g):
-                return True
+        if self.globs or self.parts:
+            key = (r, t.part)
+            got = self._memo.get(key)
+            if got is None:
+                got = False
+                if self.globs and r is not None and r.startswith("box:"):
+                    got = any(fnmatch.fnmatchcase(r, g) for g in self.globs)
+                if not got:
+                    got = any(fnmatch.fnmatchcase(t.part, g) for g in self.parts)
+                self._memo[key] = got
+            return got
         return False
 
 
@@ -112,6 +117,16 @@ class PaintState:
         self.seed = seed
         self.tb = tb
         self.accent = colors.hex_to_rgb(pal["accent"])
+        self.warnings = []  # type: List[dict]  # painter warnings (skin.paint merges them into its report)
+        self.path = "/appearance/features"  # JSON pointer of the feature being applied (set by skin.paint)
+        self.spec_dir = None  # type: Optional[str]  # decal files are relative to it
+        self.front_sign = -1
+        self.right_sign = 1
+        self.pixel = False  # appearance.texture.quality == "pixel": the default quality of repaint
+        self.info = {}  # type: Dict[str, object]  # measurements features add to skin.paint's info (e.g. `face`)
+
+    def warn(self, code: str, message: str) -> None:
+        self.warnings.append({"path": self.path, "code": code, "message": message})
 
     def color(self, ref, default_key: str) -> RGB:
         key = ref if ref is not None else default_key
@@ -234,8 +249,8 @@ def _eyes_anime(st: PaintState, texels: List[Texel], f: dict, size: float, col: 
     on the inner side, a small cream patch of eye white on the outer side and one white highlight texel."""
     tfu, tfv = _tex_face(st, texels[0])
     nu, nv = max(1, int(round(1.0 / tfu))), max(1, int(round(1.0 / tfv)))
-    wn = max(4, int(round(0.20 * size * nu)))  # eye width in texels
-    hn = max(3, int(round(0.13 * size * nv)))  # eye height in texels
+    wn = max(4 if nu >= 12 else 2, int(round(0.20 * size * nu)))  # eye width in texels (2 at 8 texels across the face)
+    hn = max(3 if nv >= 12 else 2, int(round(0.13 * size * nv)))  # eye height in texels
     y0 = _num(f.get("y"), 0.55, 0.3, 0.8)
     lash = st.color(f.get("lash"), "hair") if f.get("lash") is not None else LASH
     white = max(1, int(round(0.4 * wn)))  # eye-white columns on the outer side
@@ -293,7 +308,8 @@ def mouth(st: PaintState, f: dict) -> None:
 
 
 def blush(st: PaintState, f: dict) -> None:
-    """Soft rose cheeks: the skin blends toward the colour in an ellipse under each eye."""
+    """Soft rose cheeks: the skin blends toward the colour in an ellipse under each eye. On a coarse face (at most about 12 texels
+    across, pixel art) the cheeks are hard-edged flat patches instead of a blend."""
     texels = _head_front(st)
     if not texels:
         return
@@ -304,11 +320,12 @@ def blush(st: PaintState, f: dict) -> None:
     tfu, tfv = _tex_face(st, texels[0])
     rx = max(0.12 * size, 2.0 * tfu)
     ry = max(0.07 * size, 1.5 * tfv)
+    chunky = tfu >= 0.08
     for t in texels:
         for cx in (0.2, 0.8):
             d2 = ((t.fu - cx) / rx) ** 2 + ((t.fv - y) / ry) ** 2
             if d2 < 1.0:
-                t.rgb = colors.mix(t.rgb, col, amount * 0.75 * (1.0 - d2))
+                t.rgb = colors.mix(t.rgb, col, amount * 0.6 if chunky else amount * 0.75 * (1.0 - d2))
                 break
 
 
@@ -794,47 +811,270 @@ def filigree(st: PaintState, f: dict) -> None:
                         t.rgb = rgb
 
 
+GRADIENT_AXES = {"x": 0, "y": 1, "z": 2}
+
+
+def _stops(st: PaintState, f: dict) -> Optional[List[Tuple[float, RGB]]]:
+    """`stops`: [[position 0..1, colour], ...] (or {"at", "color"} objects) of a multi-colour gradient, sorted by position."""
+    raw = f.get("stops")
+    if not isinstance(raw, list):
+        return None
+    out = []  # type: List[Tuple[float, RGB]]
+    for e in raw:
+        if isinstance(e, dict):
+            at, col = e.get("at"), e.get("color")
+        elif isinstance(e, (list, tuple)) and len(e) == 2:
+            at, col = e
+        else:
+            continue
+        if isinstance(at, bool) or not isinstance(at, (int, float)) or col is None:
+            continue
+        out.append((_num(at, 0.0, 0.0, 1.0), st.color(col, "primary")))
+    out.sort(key=lambda e: e[0])
+    return out if len(out) >= 2 else None
+
+
+def _stops_at(stops: List[Tuple[float, RGB]], s: float) -> RGB:
+    if s <= stops[0][0]:
+        return stops[0][1]
+    for (p0, c0), (p1, c1) in zip(stops, stops[1:]):
+        if s <= p1:
+            return c1 if p1 <= p0 else colors.mix(c0, c1, (s - p0) / (p1 - p0))
+    return stops[-1][1]
+
+
 def gradient(st: PaintState, f: dict) -> None:
-    """Vertical colour blend over the targeted texels: `from` at height `lo`, `to` at `hi` (fractions of the
-    targeted height, 0 = bottom), clamped beyond. An omitted end keeps the base colour, so a hem fade is just
-    `from` + `lo`/`hi`. The base texture's brightness variation is kept (`texture`)."""
+    """Colour blend over the targeted texels: `from` at `lo`, `to` at `hi` (fractions of the targeted height, 0 = bottom),
+    clamped beyond. An omitted end keeps the base colour, so a hem fade is just `from` + `lo`/`hi`. The base texture's
+    brightness variation is kept (`texture`).
+
+    * `space: "world"`: the position along `axis` (y default, x, z; `abs: true` measures |x| from the symmetry plane) of the
+      texel in the model decides, so the colour is continuous across every island and every group of the target. The range is
+      `lo_<axis>` / `hi_<axis>` in blocks (times `block`, the blocks of your reference units) or the fractions `lo` / `hi` of
+      the targeted bounding box. The tint is relative to each group's own mean brightness, so groups of different base
+      colours get the same gradient colours.
+    * `steps: N` (2..32) quantises the blend into N flat bands (pixel-art stepping; `texture` then defaults to 0.5 and `curve`
+      to linear); `dither` (0..1) turns the band edges into an ordered 4x4 Bayer stipple.
+    * `stops: [[pos, colour], ...]` replaces from / to by a multi-colour ramp (pos 0..1 over lo..hi)."""
+    stops = _stops(st, f)
     c_from = st.color(f["from"], "primary") if f.get("from") is not None else None
     c_to = st.color(f["to"], "primary") if f.get("to") is not None else None
-    if c_from is None and c_to is None:
+    if stops is None and c_from is None and c_to is None:
         return
     names = _names(f, None)
     sel = RegionSel(names) if names else None
     faces = _faces(f, ()) if (f.get("faces") is not None or f.get("face") is not None) else None
-    lo = _num(f.get("lo"), 0.0, 0.0, 1.0)
-    hi = _num(f.get("hi"), 1.0, 0.0, 1.0)
-    if hi < lo:
-        lo, hi = hi, lo
+    world = f.get("space", "local") == "world"
+    steps = int(_num(f.get("steps"), 0, 0, 32))
+    dither = _num(f.get("dither"), 0.0, 0.0, 1.0)
     amount = _num(f.get("amount"), 1.0, 0.0, 1.0)
-    texture = _num(f.get("texture"), 0.7, 0.0, 1.0)
-    smooth = f.get("curve", "smooth") != "linear"
+    texture = _num(f.get("texture"), 0.5 if steps >= 2 else 0.7, 0.0, 1.0)
+    smooth = f.get("curve", "linear" if steps >= 2 else "smooth") != "linear"
     texels = [t for t in st.texels if t.rgb is not None and (sel.match(t) if sel is not None else default_region(t))
               and (faces is None or t.face in faces)]
     if not texels:
         return
-    ymin = min(t.v for t in texels)
-    ext = max(max(t.v for t in texels) - ymin, 1e-6)
-    lum = _mean_lum(texels)
-    for t in texels:
-        v = (t.v - ymin) / ext
-        s = 0.0 if v <= lo else 1.0 if v >= hi else (v - lo) / (hi - lo)
+    k = 1
+    absval = False
+    if world:
+        axis = f.get("axis", "y")
+        k = GRADIENT_AXES.get(axis, 1)
+        absval = bool(f.get("abs", False))
+        block = _num(f.get("block"), 1.0, 0.05, 8.0)
+    vals = [(abs(t.pos[k]) if absval else t.pos[k]) for t in texels]
+    vmin, vmax = min(vals), max(vals)
+    ext = max(vmax - vmin, 1e-6)
+    lo_abs = f.get("lo_" + axis) if world else None
+    hi_abs = f.get("hi_" + axis) if world else None
+    if lo_abs is not None or hi_abs is not None:  # absolute range in blocks; lo > hi reverses the ramp
+        lo_v = _num(lo_abs, 0.0, -1e4, 1e4) * block if lo_abs is not None else vmin
+        hi_v = _num(hi_abs, 0.0, -1e4, 1e4) * block if hi_abs is not None else vmax
+    else:
+        lo = _num(f.get("lo"), 0.0, 0.0, 1.0)
+        hi = _num(f.get("hi"), 1.0, 0.0, 1.0)
+        if hi < lo:
+            lo, hi = hi, lo
+        lo_v, hi_v = vmin + lo * ext, vmin + hi * ext
+    span = hi_v - lo_v
+    if abs(span) < 1e-9:
+        span = 1e-9
+    if world:
+        sums = {}  # type: Dict[str, List[float]]
+        for t in texels:
+            e = sums.setdefault(t.part, [0.0, 0])
+            e[0] += colors.luminance(t.rgb)
+            e[1] += 1
+        lum_of = {p: (e[0] / e[1] if e[1] else 0.5) for p, e in sums.items()}
+    else:
+        lum = _mean_lum(texels)
+    for t, v in zip(texels, vals):
+        s = (v - lo_v) / span
+        s = 0.0 if s <= 0.0 else 1.0 if s >= 1.0 else s
         if smooth:
             s = s * s * (3.0 - 2.0 * s)
+        if steps >= 2:
+            s = pixelart.band(s, steps, dither, t.x, t.y)
         base = t.rgb
-        cf = _tint(c_from, base, lum, texture) if c_from is not None else base
-        ct = _tint(c_to, base, lum, texture) if c_to is not None else base
-        out = colors.mix(cf, ct, s)
+        ml = lum_of[t.part] if world else lum
+        if stops is not None:
+            out = _tint(_stops_at(stops, s), base, ml, texture)
+        else:
+            cf = _tint(c_from, base, ml, texture) if c_from is not None else base
+            ct = _tint(c_to, base, ml, texture) if c_to is not None else base
+            out = colors.mix(cf, ct, s)
         t.rgb = colors.mix(base, out, amount) if amount < 1.0 else out
+
+
+def _target(st: PaintState, f: dict, default_faces: Optional[Sequence[str]] = None) -> List[Texel]:
+    """Painted texels of a feature's `region(s)` / `face(s)` (default: every ordinary region and every face)."""
+    names = _names(f, None)
+    sel = RegionSel(names) if names else None
+    faces = _faces(f, ()) if (f.get("faces") is not None or f.get("face") is not None) else (list(default_faces) if default_faces else None)
+    return [t for t in st.texels if t.rgb is not None and (sel.match(t) if sel is not None else default_region(t))
+            and (faces is None or t.face in faces)]
+
+
+def iridescent(st: PaintState, f: dict) -> None:
+    """Soft pastel sheen over the base colour of the targeted faces: pink, peach, yellow, lilac and aqua (`palette`) follow the
+    world position along `dir` (one colour cycle per `scale` blocks, times `block`) and, with `normal` > 0, the face normal; the
+    cycle is cut into `steps` flat bands (0 = smooth, default 5) and `dither` (0..1) stipples the band edges. `strength` 0-1 is
+    how far the base moves toward the sheen (`mode: mix`) or how much of the sheen's hue it takes at its own brightness
+    (`mode: tint`). Choose faces to make back and front differ: `{"type":"iridescent","regions":["part:wing_*"],"faces":["back"]}`;
+    the face class comes from the UV island's own normal, so it holds on thin double-sided slabs."""
+    texels = _target(st, f)
+    if not texels:
+        return
+    raw = f.get("palette")
+    pal = [st.color(c, "primary") for c in raw] if isinstance(raw, list) and raw else list(pixelart.PASTEL)
+    strength = _num(f.get("strength"), 0.6, 0.0, 1.0)
+    block = _num(f.get("block"), 1.0, 0.05, 8.0)
+    scale = _num(f.get("scale"), 0.5, 0.02, 64.0) * block
+    d = f.get("dir")
+    direction = tuple(float(v) for v in d) if isinstance(d, list) and len(d) == 3 else pixelart.IRIDESCENT_DIR
+    normal = _num(f.get("normal"), 0.0, 0.0, 1.0)
+    steps = int(_num(f.get("steps"), pixelart.DEFAULT_IRIDESCENT_STEPS, 0, 64))
+    dither = _num(f.get("dither"), 0.0, 0.0, 1.0)
+    offset = _num(f.get("offset"), 0.0, 0.0, 1.0)
+    mode = "tint" if f.get("mode") == "tint" else "mix"
+    for t in texels:
+        ph = pixelart.sheen_phase(t.pos, t.n, scale, direction, normal, offset)
+        sh = pixelart.sheen_color(pal, ph, steps, dither, t.x, t.y)
+        t.rgb = pixelart.sheen_over(t.rgb, sh, strength, mode)
+
+
+def _color_list(st: PaintState, raw) -> List[RGB]:
+    return [st.color(c, "primary") for c in raw] if isinstance(raw, list) else []
+
+
+def posterize(st: PaintState, f: dict) -> None:
+    """Quantise the final colours of the targeted texels to `levels` (2..32) steps: `mode: luma` (default) bands the brightness
+    and keeps the hue, `rgb` bands every channel. `dither` (0..1) stipples the band edges. Put it LAST in the feature list so
+    procedural noise, gradients and sheen end up as flat chunky bands."""
+    levels = int(_num(f.get("levels"), 4, 2, 32))
+    mode = "rgb" if f.get("mode") == "rgb" else "luma"
+    dither = _num(f.get("dither"), 0.0, 0.0, 1.0)
+    for t in _target(st, f):
+        t.rgb = pixelart.snap_levels(t.rgb, levels, mode, dither, t.x, t.y)
+
+
+def palette_snap(st: PaintState, f: dict) -> None:
+    """Snap the targeted texels to a palette: the colours of `palette` (palette keys / #rrggbb) or `colors` N (2..64) colours
+    picked by median cut over the targeted texels themselves (`refbake.median_cut`, with a few reserved for rare accents).
+    `dither` (0..1) stipples between the two nearest palette colours. Put it LAST in the feature list."""
+    texels = _target(st, f)
+    if not texels:
+        return
+    dither = _num(f.get("dither"), 0.0, 0.0, 1.0)
+    pal = _color_list(st, f.get("palette"))
+    if not pal:
+        from . import refbake  # lazy: refbake imports this module
+        n = int(_num(f.get("colors"), 8, 2, 64))
+        hist = {}  # type: Dict[RGB, int]
+        for t in texels:
+            hist[t.rgb] = hist.get(t.rgb, 0) + 1
+        table = refbake.median_cut(hist, n)
+        pal = sorted(set(table.values()))
+    memo = {}  # type: Dict[RGB, RGB]
+    for t in texels:
+        if dither > 0.0:
+            t.rgb = pixelart.snap_palette(t.rgb, pal, dither, t.x, t.y)
+            continue
+        got = memo.get(t.rgb)
+        if got is None:
+            got = memo[t.rgb] = pixelart.snap_palette(t.rgb, pal)
+        t.rgb = got
+
+
+def decal(st: PaintState, f: dict) -> None:
+    """Stamp an ASCII bitmap (rows + palette, or a `decals/<name>.txt` file) on the targeted texels in texel units, upright on
+    every UV island and mirrored on left / right pairs; see `decal.py` and references/skin-forge.md. `anchor: head_front`
+    targets the head's front face (the 8x8 art-pixel face) without a region."""
+    names = _names(f, None)
+    anchor = f.get("anchor", "center")
+    if not names:
+        if anchor != "head_front":
+            st.warn("decal_no_target", "a decal needs `region` / `regions` (or `anchor: head_front`)")
+            return
+        texels = [t for t in _head_front(st)]
+        faces = _faces(f, ()) if (f.get("faces") is not None or f.get("face") is not None) else None
+        if faces is not None:
+            texels = [t for t in texels if t.face in faces]
+    else:
+        sel = RegionSel(names)
+        faces = _faces(f, ()) if (f.get("faces") is not None or f.get("face") is not None) else None
+        if anchor == "head_front" and faces is None:
+            faces = ["front"]
+        texels = [t for t in st.texels if t.rgb is not None and sel.match(t) and (faces is None or t.face in faces)]
+    decal_mod.apply(st, f, texels)
+
+
+BEVEL_FACES = ("front", "back", "left", "right", "side")
+_BEVEL_STEPS = {"top": (0, -1), "bottom": (0, 1), "left": (-1, 0), "right": (1, 0)}
+
+
+def bevel(st: PaintState, f: dict) -> None:
+    """Baked pixel-art lighting on the rim of every face (UV island) of the targeted texels: the outermost `width` (1-2) texel
+    rows / columns along the top, bottom, left and right edge of the face as a viewer sees it from outside (up = world +Y, the same
+    frame as `decal`, never mirrored: the light stays on the viewer's left / top) change brightness by `top` / `bottom` / `left` /
+    `right` (-1..1; + lighter, - darker; a corner texel gets the sum). The edge follows the island's real outline, so a stair-
+    stepped plank tip or a tapered face is lit along its steps. Faces narrower or shorter than `min_size` texels (default 3) are
+    skipped. `mode: outline` instead mixes every rim texel toward `color` (default: black) by `amount` (0..1): the thin dark outline
+    of feathers. `faces` default: front back left right side."""
+    texels = _target(st, f, BEVEL_FACES)
+    if not texels:
+        return
+    width = int(_num(f.get("width"), 1, 1, 2))
+    min_size = int(_num(f.get("min_size"), 3, 1, 32))
+    amounts = {k: _num(f.get(k), 0.0, -1.0, 1.0) for k in _BEVEL_STEPS}
+    outline = f.get("mode", "shade") == "outline"
+    amount = _num(f.get("amount"), 0.5, 0.0, 1.0)
+    col = st.color(f["color"], "primary") if f.get("color") is not None else (0, 0, 0)
+    for group in decal_mod.islands_of(texels):
+        fr = decal_mod.build_frame(group, st.front_sign, st.right_sign, "none", False, "island")  # texel-aligned rim, tilted islands included
+        if fr is None or fr.w < min_size or fr.h < min_size:
+            continue
+        cells = {(int(s), int(v)) for _t, s, v in fr.pts}
+        for t, s, v in fr.pts:
+            i, j = int(s), int(v)
+            k = 0.0
+            rim = False
+            for name, (di, dj) in _BEVEL_STEPS.items():
+                if any((i + di * n, j + dj * n) not in cells for n in range(1, width + 1)):
+                    rim = True
+                    k += amounts[name]
+            if not rim or t.rgb is None:
+                continue
+            if outline:
+                t.rgb = colors.mix(t.rgb, col, amount)
+            elif k:
+                t.rgb = _bright(t.rgb, min(1.6, max(0.4, 1.0 + k)))
 
 
 def repaint(st: PaintState, f: dict) -> None:
     """Re-shade the targeted texels with another `material`. The box keeps its own colour and accent unless `color` /
     `accent` are given, so any attachment or body part can get silk, lace, silk_feather, hair_soft, ... without the
-    preset knowing about it. Needs an explicit target (`region` / `regions`, including `box:<glob>` and `part:<glob>`)."""
+    preset knowing about it. `quality: pixel | smooth` switches the material variant (default: the texel's own). Needs an explicit
+    target (`region` / `regions`, including `box:<glob>` and `part:<glob>`)."""
     material = f.get("material")
     names = _names(f, None)
     if material not in MATERIAL_FUNCS or not names:
@@ -843,9 +1083,12 @@ def repaint(st: PaintState, f: dict) -> None:
     faces = _faces(f, ()) if (f.get("faces") is not None or f.get("face") is not None) else None
     color = st.color(f["color"], "primary") if f.get("color") is not None else None
     accent = st.color(f["accent"], "accent") if f.get("accent") is not None else None
+    quality = f.get("quality")
     for t in st.texels:
         if t.rgb is None or not sel.match(t) or (faces is not None and t.face not in faces):
             continue
+        if quality is not None:
+            t.pixel = quality == "pixel"
         t.rgb = shade_texel(material, t, color or t.base_rgb or st.color(None, "primary"),
                             accent or t.accent_rgb or st.accent, st.seed)
 
@@ -886,6 +1129,11 @@ FEATURES = {
     "bangs": bangs,
     "repaint": repaint,
     "sparkle": sparkle,
+    "decal": decal,
+    "iridescent": iridescent,
+    "posterize": posterize,
+    "palette_snap": palette_snap,
+    "bevel": bevel,
 }  # type: Dict[str, Callable[[PaintState, dict], None]]
 
 

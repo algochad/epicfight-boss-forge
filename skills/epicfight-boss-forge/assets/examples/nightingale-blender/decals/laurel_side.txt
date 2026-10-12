@@ -1,0 +1,6 @@
+; Laurel comb, side face: a diagonal checker of teal leaves on the silver band (hero_3q: teal squares on the temple).
+@t #6cc4dc
+@d #3f8aa8
+t.t.t.t.
+.d.d.d.d
+t.t.t.t.

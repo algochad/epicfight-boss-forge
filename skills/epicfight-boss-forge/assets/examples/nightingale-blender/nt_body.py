@@ -1,71 +1,78 @@
-"""Nightingale body: head, torso robe, sleeves, hands, legs, boots, skirt, tabard, belt (everything but hair / wings / ribbons).
+"""Nightingale body: head, torso robe + blue collar, sleeves with flared blue cuffs, hands, legs, boots (cuff, sole, rune plate), skirt
+(light grey-blue wall, blue hem band, lace frill), front and back tabard. Hair / wings / ribbons / harness live in their own parts,
+pauldrons / belt / pouches in `nt_extras`.
 
-Measurements are reference pixels (front view unless noted) through `REF`; see nt_common.
+The body is on the ART PIXEL grid (`nt_common.px`: 1 pixel = 1 texel = 0.0325 blocks, head cube = 8 px): every number below is a
+count of pixels unless it says otherwise. x = pixels outward from the centre line (the character's right is +x, mirrored by the caller),
+y = pixels forward (torso back at -2, front at +6), z = pixels above the soles (collar 44, belt 27.5-29.5, hip 23, hem 14, knee 12).
 """
 from __future__ import annotations
 
 import math
 
-from nt_common import REF as R, K, arm_rule, centre_rule, leg_rule, skirt_rule, torso_rule, Z_HIP
+from nt_common import K, px, arm_rule, centre_rule, leg_rule, skirt_rule, torso_rule, Z_HIP, Z_KNEE, HEAD_BOX, Z_COLLAR
 
 
 # ------------------------------------------------------------------------------------------------------- head and neck
 def add_head(m: K.Model, P: dict) -> None:
-    """Skin head cube (the face is painted on its front) and a short neck. Head: x 193-256, y 100-165, side-view depth 517-572."""
-    hx = R.d(31.5)
-    y0, y1 = R.y(517), R.y(572)
-    z0, z1 = R.z(165), R.z(100)
+    """Skin head cube (8 x 8 x 8 art pixels, `nt_common.HEAD_BOX`; the face is painted on its front) and a short neck."""
+    hx, y0, y1, z0, z1 = HEAD_BOX
     K.block(m, (-hx, y0, z0), (hx, y1, z1), "skin", "Head", density=P["face_density"])
     # neck: from the collar up into the head
-    K.block(m, (-0.045, y0 + 0.03, R.z(172) - 0.01), (0.045, y1 - 0.03, z0 + 0.02), "skin",
-            K.rule_blend(2, R.z(172), z0 + 0.02, "Chest", "Head"))
+    K.block(m, (-0.045, y0 + 0.03, Z_COLLAR - 0.01), (0.045, y1 - 0.03, z0 + 0.02), "skin",
+            K.rule_blend(2, Z_COLLAR, z0 + 0.02, "Chest", "Head"))
 
 
 # ------------------------------------------------------------------------------------------------------- torso and arms
+# Every textured face is a whole number of pixels wide / tall (UV islands are whole texels); parts that sit on each other overlap by
+# 1 px instead of touching, so no coplanar internal caps are left behind.
+CY = px(2.0)   # centre of the torso / arm / leg depth (y)
+
+
 def add_torso(m: K.Model, P: dict) -> None:
-    """Robe shell over the (omitted) body: shoulders y=172, belt y=262-268, hip y=335 (front x 188-262, side depth 506-567)."""
-    cy = R.y(537)
-    secs = [
-        (R.z(172), 0.0, cy, R.d(38), R.d(30.5)),
-        (R.z(262), 0.0, cy, R.d(38), R.d(30.5)),
-        (R.z(268), 0.0, cy, R.d(40), R.d(31.0)),
-        (R.z(335), 0.0, cy, R.d(50), R.d(31.5)),
-    ]
+    """Slim robe shell from the collar (z 44) over the waist (belt z 31-33) to the hips (z 23, 12.5 px wide), 8 px deep, plus the
+    blue stand-up collar ring around the neck (trim, 7 x 9 px, z 42.5 -> 44.5)."""
+    secs = [(px(44), 0.0, CY, px(5.0), px(4.0)), (px(31), 0.0, CY, px(4.5), px(4.0)), (px(23), 0.0, CY, px(6.25), px(4.0))]
     K.stacked_rects(m, secs, "robe", torso_rule(), smooth=False)
-    # belt (leather) with a slightly bigger section
-    K.stacked_rects(m, [(R.z(262), 0.0, cy, R.d(41.5), R.d(32.0)), (R.z(270), 0.0, cy, R.d(42.5), R.d(32.8))], "leather", torso_rule())
+    K.stacked_rects(m, [(px(44.5), 0.0, CY, px(3.5), px(4.5)), (px(42.5), 0.0, CY, px(3.5), px(4.5))], "trim", torso_rule())
 
 
 def add_arm(m: K.Model, P: dict) -> None:
-    """Right arm (+x, image left): sleeve y=180-283 centred x=160 -> 152, cuff y=283-300, fist x 128-158 y 300-335. Mirrored by the caller."""
+    """Right arm (+x), mirrored by the caller: 5 x 5 px sleeve z 43 -> 30, its centre leaning out from x 7.75 to 9.25 (landmarks: 0.24 at
+    the upper arm, 0.30 at the wrist; a 0.25 px gap to the torso), blue cuff 6 x 6 px (z 31 -> 27: flared 0.5 px each side), 4 x 4 px
+    hand (z 28 -> 22) splayed 1 px further out. Tag `arm` (the volume the cloth checks test against)."""
     mk = m.mark()
     m.tag = "arm"
     w = arm_rule("R")
-    cy = R.y(530)
-    sleeve = [(R.z(180), R.x(160), cy, R.d(26), R.d(20)), (R.z(230), R.x(157), cy, R.d(26.5), R.d(20)),
-              (R.z(283), R.x(152), cy, R.d(27), R.d(20.5))]
+    sleeve = [(px(43), px(7.75), CY, px(2.5), px(2.5)), (px(37), px(8.5), CY, px(2.5), px(2.5)), (px(30), px(9.25), CY, px(2.5), px(2.5))]
     K.stacked_rects(m, sleeve, "robe", w)
-    K.stacked_rects(m, [(R.z(283), R.x(152), cy, R.d(31), R.d(23)), (R.z(300), R.x(152), cy, R.d(31), R.d(23))], "trim", w)
-    K.block(m, (R.x(142) - R.d(14), cy - R.d(14), R.z(335)), (R.x(142) + R.d(14), cy + R.d(14), R.z(300)), "skin", w)
+    cx = px(9.25)
+    K.block(m, (cx - px(3.0), CY - px(3.0), px(27)), (cx + px(3.0), CY + px(3.0), px(31)), "trim", w)    # cuff
+    hx = px(10.25)
+    K.block(m, (hx - px(2.0), CY - px(2.0), px(22)), (hx + px(2.0), CY + px(2.0), px(28)), "skin", w)    # hand
     m.mirror(mk)
     m.tag = ""
 
 
 # ------------------------------------------------------------------------------------------------------- legs and boots
+LEG_X = px(2.75)   # centre of the right leg / boot (x)
+
+
 def add_legs(m: K.Model, P: dict) -> None:
-    """Right leg (+x): skin thigh/shin x=206 (width 28 px), y-centre 0.074; boot cuff y=430-455; boot y=455-516; toe to side x=575."""
+    """Right leg (+x), mirrored by the caller: 4 x 4 px skin thigh / shin z 23 -> 11 (bare below the skirt), blue boot cuff 5 x 5 px
+    (z 12 -> 9), grey boot shaft 4 x 4 px (z 10 -> 4), foot 4 x 7 px (z 1 -> 4) with a 5 x 4 px toe cap, a 5 x 9 px sole slab (z 0 -> 1,
+    `boots` painted lighter per face) and the flat 3 x 3 px rune plate (group `rune`) on the back of the shaft. Tag `leg`."""
     mk = m.mark()
     m.tag = "leg"
     w = leg_rule("R")
-    cx = R.x(206)
-    cy = R.y(536)
-    hx, hy = R.d(14), R.d(16)
-    K.stacked_rects(m, [(R.z(335), cx, cy, hx, hy), (R.z(380), cx, cy, hx, hy), (R.z(430), cx, cy, hx, hy)], "skin", w)
-    # boot cuff
-    K.stacked_rects(m, [(R.z(430), cx + 0.008, cy, R.d(20.5), R.d(21)), (R.z(455), cx + 0.008, cy, R.d(20.5), R.d(21))], "trim", "Leg_R")
-    # boot shaft and foot
-    K.block(m, (cx - R.d(16.5), R.y(521), R.zs(487)), (cx + R.d(16.5), R.y(552), R.z(455)), "boots", "Leg_R")
-    K.block(m, (cx - R.d(16.5), R.y(521), 0.0), (cx + R.d(16.5), R.y(576), R.zs(487)), "boots", "Leg_R")
+    cx = LEG_X
+    K.stacked_rects(m, [(px(23), cx, CY, px(2.0), px(2.0)), (px(17), cx, CY, px(2.0), px(2.0)), (px(11), cx, CY, px(2.0), px(2.0))], "skin", w)
+    K.block(m, (cx - px(2.5), CY - px(2.5), px(9)), (cx + px(2.5), CY + px(2.5), px(12)), "trim", "Leg_R")        # cuff
+    K.block(m, (cx - px(2.0), px(0.0), px(4)), (cx + px(2.0), px(4.0), px(10)), "boots", "Leg_R")                  # shaft
+    K.block(m, (cx - px(2.0), px(0.0), px(1)), (cx + px(2.0), px(7.0), px(4)), "boots", "Leg_R")                   # foot
+    K.block(m, (cx - px(2.5), px(4.0), px(1)), (cx + px(2.5), px(8.0), px(5)), "boots", "Leg_R")                   # toe cap
+    K.block(m, (cx - px(2.5), px(-0.5), px(0)), (cx + px(2.5), px(8.5), px(1)), "boots", "Leg_R")                  # sole
+    K.block(m, (cx - px(1.5), px(-0.5), px(5)), (cx + px(1.5), px(0.0), px(8)), "rune", "Leg_R")                   # heel rune plate
     m.mirror(mk)
     m.tag = ""
 
@@ -74,13 +81,12 @@ def add_legs(m: K.Model, P: dict) -> None:
 def _skirt_half_ring(z: float, hx: float, hy: float, cy: float, gap: float, thick: float, n: int, power: float = 3.0,
                      droop: float = 0.0):
     """Closed ring of the RIGHT half of the skirt wall: outer + inner polyline of a rounded rectangle (superellipse) from the back
-    centre (x = 0) round the side to the front tip at x = gap (the front opening is +-gap wide). `droop` lowers the ring by up to
-    that much towards the front tip (the sheet's hem steps down towards the slit)."""
-    phi_g = math.acos(min(1.0, (gap / hx) ** (power / 2.0)))
-    a0, a1 = -math.pi / 2.0, phi_g
-
+    centre (x = 0) round the side to the front tip at x = gap (the front opening is +-gap wide, for the outer AND the inner polyline, so
+    the wall's front edge is a straight cut at x = gap). `droop` lowers the ring by up to that much towards the front tip (the hem steps
+    down towards the slit). Order: outer k = 0..n, then inner k = n..0 (the inner point of column k is `ring[2 * n + 1 - k]`)."""
     def pt(rx, ry, k):
-        phi = a0 + (a1 - a0) * k / n
+        a1 = math.acos(min(1.0, (gap / rx) ** (power / 2.0)))
+        phi = -math.pi / 2.0 + (a1 + math.pi / 2.0) * k / n
         c, s = math.cos(phi), math.sin(phi)
         return (rx * math.copysign(abs(c) ** (2.0 / power), c), cy + ry * math.copysign(abs(s) ** (2.0 / power), s),
                 z - droop * K.smoothstep(0.0, a1, phi))
@@ -90,32 +96,66 @@ def _skirt_half_ring(z: float, hx: float, hy: float, cy: float, gap: float, thic
     return outer + inner
 
 
+def _skirt_dims(t: float):
+    """(hx, hy, cy) of the skirt wall at t = 0 (hip) .. 1 (hem): 13.5 px wide at the hip (0.5 px wider than the torso hip: the swung
+    thigh passes inside the wall) flaring to 19.5 px at the hem (landmarks: hem width 0.67 with the band), 8 -> 9.5 px deep."""
+    e = t ** 1.15
+    return K.lerp(px(6.75), px(9.75), e), K.lerp(px(4.0), px(4.75), e), K.lerp(px(2.0), px(1.75), t)
+
+
 def add_skirt(m: K.Model, P: dict) -> None:
-    """Robe skirt below the hip (y 335 -> hem 408), open at the front (+-34 px), split at the back centre (two halves built as the
-    right half + mirror, each following its own thigh: `skirt_rule`, no vertex shared between the legs); plus the tabard (front panel,
-    x 205-250, hanging from the belt y 262 to y 405), one piece whose halves follow their own thigh (`centre_rule`)."""
-    cy0 = R.y(537)
-    z_top, z_hem = R.z(335), R.z(408)
+    """Robe skirt below the hip (z 23 -> hem 14), open at the front (`skirt_gap` px slit half width), split at the back centre (two
+    halves built as the right half + mirror, each following its own thigh: `skirt_rule`, no vertex shared between the legs). On it: a
+    blue hem band (trim, 2 px), a lace frill (`lace`) of short tapering tabs hanging 1-3 px below the hem, and the front / back
+    tabard (`_tabard`)."""
+    z_top, z_hem = px(23), px(14)
     segs, n = P["skirt_segments"], P["skirt_columns"]
+    gap = px(P["skirt_gap"])
+    droop = P["skirt_droop"]
+    thick = px(1.0)
+    rule = skirt_rule("R", drop=P["skirt_drop"])
     rings = []
     for i in range(segs + 1):
         t = i / float(segs)
-        z = K.lerp(z_top, z_hem, t)
-        hx = K.lerp(R.d(50), R.d(73), t ** 1.15)
-        hy = K.lerp(R.d(31.5), R.d(35), t ** 1.15)
-        cy = K.lerp(cy0, R.y(535), t)
-        rings.append(_skirt_half_ring(z, hx, hy, cy, R.d(34), 0.012, n, droop=P["skirt_droop"] * t * t))
+        hx, hy, cy = _skirt_dims(t)
+        rings.append(_skirt_half_ring(K.lerp(z_top, z_hem, t), hx, hy, cy, gap, thick, n, droop=droop * t * t))
     mk = m.mark()
-    K.loft(m, rings, "skirt", skirt_rule("R", drop=P["skirt_drop"]), caps=(False, True), smooth=True, flat_cols=(n, 2 * n + 1))
+    K.loft(m, rings, "skirt", rule, caps=(False, True), smooth=True, flat_cols=(n, 2 * n + 1))
+    # blue hem band: 2 px tall, 0.5 px proud of the wall (its top ring sits where the wall's t = 1 - 2 / 9 ring droops: droop * t^2)
+    hx, hy, cy = _skirt_dims(1.0)
+    bx, by = hx + px(0.5), hy + px(0.5)
+    K.loft(m, [_skirt_half_ring(z_hem + px(2.0), bx, by, cy, gap, px(1.5), n, droop=droop * 0.6),
+               _skirt_half_ring(z_hem, bx, by, cy, gap, px(1.5), n, droop=droop)], "trim", rule, caps=(False, True),
+           smooth=False, flat_cols=(n, 2 * n + 1))
+    # lace frill: one tab per ring column hanging from the hem band, tapering inwards (0.5 px inside the wall at the top, 1.25 px at the
+    # bottom: the sheet's under skirt is narrower than the panel hem); its lower edge zigzags in whole pixels, 3 px below the hem at the
+    # back centre down to 1 px at the front slit (landmarks: jagged back hem at z 0.36-0.42). The tabs follow the thigh above the knee
+    # joint (z 0.386) and the shin below z 0.356 (smooth in between): a lace that follows the thigh down to the boots is pushed into the
+    # shin when the knee bends.
+    if P.get("lace", True):
+        lace_rule = K.rule_chain(2, [(Z_KNEE, "Thigh_R"), (Z_KNEE - 0.03, "Leg_R")])
+        top = _skirt_half_ring(z_hem, hx - px(0.5), hy - px(0.5), cy, gap, px(1.0), n, droop=droop)
+        bot = _skirt_half_ring(z_hem, hx - px(1.25), hy - px(0.75), cy, gap, px(1.0), n, droop=droop)
+        steps = (3, 2, 3, 2, 2, 1, 1)
+        for k in range(n):
+            drop = px(steps[int(round(k * (len(steps) - 1) / float(max(1, n - 1))))])
+            ia, ib = 2 * n + 1 - k, 2 * n + 1 - (k + 1)
+            upper = [top[k], top[k + 1], top[ib], top[ia]]
+            lower = [(x, y, z - drop) for x, y, z in (bot[k], bot[k + 1], bot[ib], bot[ia])]
+            K.loft(m, [upper, lower], "lace", lace_rule, caps=(True, True))
     m.mirror(mk)
-    # tabard: ONE closed panel (one UV island, so its pattern is continuous) whose front face has vertices at x = +-lr: the two halves
-    # follow their own thigh (`centre_rule`), only the strip between them stretches when the legs part
-    ty = R.y(567) + 0.011  # the tabard hangs straight down the front of the torso (front face at side-view x 567)
-    hw, lr, th = R.d(22.5), P["tabard_lr"], 0.009
-    levels = [(R.z(262), ty), (R.z(335), ty), (R.z(370), ty + 0.004), (R.z(405), ty + 0.01)]
-    trings = [[(hw, y + th, z), (lr, y + th, z), (-lr, y + th, z), (-hw, y + th, z),
-               (-hw, y - th, z), (-lr, y - th, z), (lr, y - th, z), (hw, y - th, z)] for z, y in levels]
-    K.loft(m, trings, "tabard", centre_rule(hip_z=Z_HIP + 0.1, drop=P["skirt_drop"] + 0.06, lr_half=lr), caps=(True, True))
+    _tabard(m, P, [(px(31), px(6.75)), (px(24), px(6.75)), (px(19), px(7.0)), (px(14.5), px(7.25))])      # front: stem from the belt, panel below
+    _tabard(m, P, [(px(26), px(-2.75)), (px(20), px(-3.3)), (px(14.5), px(-4.0))])                        # back, under the pouches (7 x 11.5 px)
+
+
+def _tabard(m: K.Model, P: dict, levels) -> None:
+    """One closed cream panel (7 px wide, 1 px thick; ONE UV island so its pattern is continuous) hanging at the given
+    (z, y of the centre line) levels. Vertices at x = +-lr in the face: the two halves follow their own thigh (`centre_rule`), only the
+    strip between them stretches when the legs part."""
+    hw, lr, th = px(3.5), P["tabard_lr"], px(0.5)
+    rings = [[(hw, y + th, z), (lr, y + th, z), (-lr, y + th, z), (-hw, y + th, z),
+              (-hw, y - th, z), (-lr, y - th, z), (lr, y - th, z), (hw, y - th, z)] for z, y in levels]
+    K.loft(m, rings, "tabard", centre_rule(hip_z=Z_HIP + 0.1, drop=P["skirt_drop"] + 0.06, lr_half=lr), caps=(True, True))
 
 
 def add_body(m: K.Model, P: dict) -> None:

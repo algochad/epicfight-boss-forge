@@ -43,16 +43,18 @@ from .spec import BossForgeError, Err
 
 RGB = Tuple[int, int, int]
 
-BAKE_KEYS = ("views", "min_facing", "depth_tolerance", "smear", "palette", "regions", "exclude", "order", "blend", "footprint")
+BAKE_KEYS = ("views", "min_facing", "depth_tolerance", "smear", "palette", "regions", "exclude", "order", "blend", "footprint", "sample", "snap", "snap_origin")
 VIEW_NAMES = ("front", "back", "right", "left")
 ORDERS = ("first", "last")
+SAMPLES = ("footprint", "center")
 MIN_FACING_RANGE = (0.1, 1.0)
 DEPTH_TOLERANCE_RANGE = (0.0, 0.5)
 PALETTE_RANGE = (8, 64)
 BLEND_RANGE = (0.0, 1.0)
 FOOTPRINT_RANGE = (0.25, 1.0)
+SNAP_MAX = 64  # largest art pixel (in reference pixels) `snap` accepts
 DEFAULTS = {"views": None, "min_facing": 0.5, "depth_tolerance": 0.06, "smear": True, "palette": 0, "regions": ["*"],
-            "exclude": [], "order": "last", "blend": 1.0, "footprint": 1.0}
+            "exclude": [], "order": "last", "blend": 1.0, "footprint": 1.0, "sample": "footprint", "snap": 0, "snap_origin": [0, 0]}
 
 KIND_CODE = {"direct": 1, "edge": 2, "smeared": 3}  # per-texel bake map codes (4 = filled)
 SMEAR_MIN_FACING = 0.2  # grazing views below this never contribute
@@ -134,6 +136,18 @@ def validate_bake(bake: Any, base_path: str = "/reference/bake", defined_views: 
             errs.append(Err(p + "/palette", "out_of_range", "%r is outside the allowed range: 0 (off) or %d..%d" % ((v,) + PALETTE_RANGE)))
     if "order" in bake and bake["order"] not in ORDERS:
         errs.append(Err(p + "/order", "unknown_value", "%r is not allowed; allowed values: %s" % (bake["order"], ", ".join(ORDERS))))
+    if "sample" in bake and bake["sample"] not in SAMPLES:
+        errs.append(Err(p + "/sample", "unknown_value", "%r is not allowed; allowed values: %s" % (bake["sample"], ", ".join(SAMPLES))))
+    if "snap" in bake:
+        v = bake["snap"]
+        if isinstance(v, bool) or not isinstance(v, int):
+            errs.append(Err(p + "/snap", "bad_type", "snap must be an integer: the art pixel size in reference pixels (0 = off)"))
+        elif not 0 <= v <= SNAP_MAX:
+            errs.append(Err(p + "/snap", "out_of_range", "%r is outside the allowed range 0..%d reference pixels" % (v, SNAP_MAX)))
+    if "snap_origin" in bake:
+        v = bake["snap_origin"]
+        if not (isinstance(v, list) and len(v) == 2 and all(_is_num(c) for c in v)):
+            errs.append(Err(p + "/snap_origin", "bad_type", "snap_origin must be [x, y] in reference pixels (a corner of an art pixel)"))
     for key in ("regions", "exclude"):
         if key in bake:
             _check_targets(errs, "%s/%s" % (p, key), bake[key])
@@ -158,6 +172,8 @@ def normalize_bake(raw: dict, defined_views: Optional[Sequence[str]] = None) -> 
     out["footprint"] = float(out["footprint"])
     out["palette"] = int(out["palette"])
     out["smear"] = bool(out["smear"])
+    out["snap"] = int(out["snap"])
+    out["snap_origin"] = [float(out["snap_origin"][0]), float(out["snap_origin"][1])]
     return out
 
 
@@ -363,6 +379,9 @@ class _ViewBake:
         self.H = h
         self.fp = {}  # type: Dict[int, tuple]
         self.shrink = 1.0
+        self.center = False  # sample: center = the single reference pixel at the texel centre, no averaging
+        self.snap = 0  # art pixel size in reference pixels: sample points snap to the middle of their art pixel (0 = off)
+        self.snap_origin = (0.0, 0.0)  # reference pixel coordinates of a corner of the art pixel grid
         self._px_sum = 0.0
         self._px_n = 0
         self.stat = {"facing": 0, "direct": 0, "edge": 0, "smeared": 0, "occluded": 0, "mask_miss": 0}
@@ -468,7 +487,21 @@ class _ViewBake:
         return True
 
     def sample(self, cx: float, cy: float, subs) -> Tuple[float, Optional[RGB]]:
-        """(foreground share of the footprint, mean foreground colour or None)."""
+        """(foreground share of the footprint, mean foreground colour or None). `snap` moves the sample point to the middle of the
+        art pixel (an `snap` x `snap` cell of the reference grid) that contains it and, unless `center`, averages that whole cell;
+        `center` reads the one reference pixel at the sample point instead of a footprint average."""
+        if self.snap:
+            n = float(self.snap)
+            ox, oy = self.snap_origin
+            cx = (math.floor((cx - ox) / n) + 0.5) * n + ox
+            cy = (math.floor((cy - oy) / n) + 0.5) * n + oy
+            if not self.center:
+                subs = [(0.0, 0.0, n * 0.5, n * 0.5)]
+        if self.center:
+            ix, iy = int(math.floor(cx)), int(math.floor(cy))
+            if 0 <= ix < self.W and 0 <= iy < self.H and self.mask[iy * self.W + ix]:
+                return 1.0, self.view.color_at(ix + 0.5, iy + 0.5)
+            return 0.0, None
         tab = self.tab
         cnt = sr = sg = sb = area = 0.0
         for ox, oy, hx, hy in subs:
@@ -568,6 +601,9 @@ class BakePlan:
         self.vbs = [_ViewBake(name, self.views[name], positions, mesh.tris, normals_t) for name in cfg["views"]]
         for vb in self.vbs:
             vb.shrink = cfg["footprint"]
+            vb.center = cfg["sample"] == "center"
+            vb.snap = cfg["snap"]
+            vb.snap_origin = (cfg["snap_origin"][0], cfg["snap_origin"][1])
         vbs = self.vbs
         eligible = self._eligible(texels)
         min_facing = cfg["min_facing"]

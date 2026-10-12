@@ -62,6 +62,7 @@ Features, applied in list order (`bossforge list features`):
 | `wear` | amount 0-1 (0.5) |
 | `runes` | color, density 0-1 (0.4), regions[] (torso, arms) |
 | `stripes` | region, orient `v\|h`, count 1-8, width 0.02-0.2, color |
+| `decal` `iridescent` `bevel` `posterize` `palette_snap` | pixel-art features, see "Pixel-art painting" below (`gradient` also gains `space: world`, `steps`, `dither`, `stops`) |
 
 A feature that names a region the template lacks is skipped silently. Numbers outside the ranges are rejected by `validate` (`out_of_range`); colours are palette keys or `#rrggbb` (`from`, `to`, `fill`, `outline`, `lash`, `glow_color`, `wing_color` too).
 
@@ -142,7 +143,48 @@ Example (the Nightingale robe: glowing latin cross with collar wings, cream bodi
 {"type": "filigree", "regions": ["box:skirt_fr[01]_*"], "where": "border", "pattern": "key", "sides": ["left", "right"], "color": "#f2ead3"}
 ```
 
-## Reading the preview
+## Pixel-art painting (decals, world gradients, sheen, quantising)
+
+Target look: Minecraft pixel art, about 16 texels per art block, flat 2-3 tone shading, hand-placed ornaments, stepped gradients. Everything below works in TEXEL units or world positions (never in per-texel random noise) and is deterministic. Face classes (`front`/`back`/`left`/`right`/`top`/`bottom`/`side`) of a FLAT UV island of an imported mesh come from the island's own normal (geometric normals turned outward by the vertex normals) for every texel of the island, so rim texels of a smooth-shaded slab never flip class and the two sides of a double-sided feather stay `front` and `back`; a curved island (a skirt wrapped around the body) is classified per texel.
+
+| Type | Parameters (defaults) |
+|---|---|
+| `decal` | region / regions[] (`part:` / `box:` globs, body regions; none with `anchor: head_front`), face / faces[], `bitmap` (rows) or `file` (`decals/<name>.txt`), palette `{char: colour\|null}`, color (`#`), scale 1-8 or `auto` (1; `auto` for `head_front`), anchor `center\|top\|bottom\|left\|right\|top_left\|top_right\|bottom_left\|bottom_right\|head_front` (center), offset `[dx, dy]` texels, scope `island\|union` (island), mirror `auto\|none\|flip` (auto), align `upright\|island` (upright), repeat `x\|y\|xy` + gap texels + count, partial (false), skip_small (false), fit `none\|inside` (none), blend `opaque\|multiply` (opaque), opacity 0-1, project `{view, at, pixel, facing, depth}` |
+| `gradient` (added keys) | space `local\|world` (local), axis `x\|y\|z` (y), abs, lo_<axis> / hi_<axis> (blocks), block (blocks per unit, 1), steps 2-32, dither 0-1, stops `[[pos, colour], ...]` |
+| `iridescent` | region / regions[], face / faces[], strength 0-1 (0.6), palette (pink, peach, yellow, lilac, aqua), dir `[x, y, z]` ([0.55, 1, 0.4]), scale blocks per cycle (0.5), block (1), normal 0-1 (0), steps 0-64 (5; 0 = smooth), dither 0-1 (0), offset 0-1, mode `mix\|tint` (mix) |
+| `bevel` | region / regions[], face / faces[] (front back left right side), top / bottom / left / right -1..1 (0), width 1-2 (1), min_size 1-32 (3), mode `shade\|outline` (shade), color (black), amount 0-1 (0.5) |
+| `posterize` | region / regions[], face / faces[], levels 2-32 (4), mode `luma\|rgb` (luma), dither 0-1 |
+| `palette_snap` | region / regions[], face / faces[], `palette` [colours] or `colors` 2-64 (median cut, `refbake.median_cut`), dither 0-1 |
+
+**Decal files and bitmaps.** `decals/<name>.txt` next to the spec (`file` is relative to the spec): a `;` at column 0 starts a comment line, `@<char> <colour>` maps a character (`#rrggbb`, a palette key `primary|secondary|accent|skin|hair|eyes`, or `none` = transparent), every other non-blank line is a bitmap row (right-padded with transparent pixels, at most 128 x 128). Without a mapping `.` and space are transparent and `#` is the feature's `color` (default cream `#f3ecd2`); any other undefined character is `decal_bad_palette`. The JSON `palette` wins over the file's directives. Example (`decals/wingmark.txt`):
+
+```
+; wing mark, drawn for the character's right piece
+@# #f6efd8
+@g #c9a54a
+..#...
+.##g..
+###gg.
+.##g..
+..#...
+```
+
+**Orientation (per UV island, derived from the mesh).** One bitmap pixel covers `scale` x `scale` texels, no stretching. The painter fits each island's frame (world position as an affine function of the texel, the island's outward normal, `up` = world +Y projected on the surface, on horizontal faces the character's front; `right` = up x normal), so the picture reads UPRIGHT as seen from outside whatever rotation or mirroring the exporter gave the UV island (islands within 12 degrees of the texel axes snap to them: exact pixels; `align: island` snaps every island, so the picture tilts with a tilted feather but stays crisp). Two faces chained through a shared UV corner are separate islands (8-connected texel blobs). The bitmap is authored for the piece on the character's RIGHT side (+x, viewer-left in the front view); `mirror: auto` stamps the mirror image on LEFT pieces, anchors and offsets included, so a pair is an exact mirror pair; centre pieces (|x| < 0.03 block) are never flipped. `anchor` places the bitmap in the island's texel bounding box (`scope: union`: in the projected union of all targeted islands), `repeat` tiles whole copies along the axis (`partial: true` also a clipped copy), `fit: inside` slides the picture to the nearest spot where every opaque pixel lands on the island (tapered islands), `skip_small` gives islands smaller than the bitmap no copy and no warning. `blend: multiply` multiplies the base colour with the bitmap colour (a grey bitmap shades the base).
+
+**World projection** (`project`, for curved surfaces such as a cone skirt where island frames land on the sides): every targeted texel whose normal faces the viewer (`dot(normal, toward viewer) >= facing`, 0.3) is looked up in the bitmap by its WORLD position (orthographic, nearest cell, no resampling). `view` `front|back|left|right|top|bottom` is the side the picture is seen from; `at` = world position in model blocks of the bitmap's `anchor`: `[x, y]` front/back, `[z, y]` left/right, `[x, z]` top/bottom; `pixel` = blocks per bitmap pixel (`auto` = median texel size times `scale`); only the nearest layer within `depth` blocks (0.05) of each projected cell is stamped, so inner walls and the far side stay clean. `mirror: auto` also stamps the reflection x -> -x (not for a centred decal); `repeat` needs `count`.
+
+**Warnings** (never errors, in the `skin` report): `decal_too_big` (bitmap larger than the island, clipped), `decal_partial` (opaque pixels fell off the island), `decal_stretched` (UV texels are more than 1.25:1 stretched there), `decal_no_target` (nothing targeted / nothing faces the view), `face_grid` (see the face below). Validation errors: `decal_missing_file`, `decal_bad_bitmap`, `decal_bad_palette`, `decal_project_conflict`, `needs_world_space`, plus the usual `required` / `bad_type` / `out_of_range` / `unknown_value` / `bad_color`.
+
+**The 8x8 face.** At 16 texels per art block the head front island is 8 x 8 texels. `{"type": "decal", "anchor": "head_front", "file": "decals/face.txt"}` stamps an 8x8 (or 8x9) bitmap pixel by pixel on the head front texels (region `head`, face `front`; `scale: auto` picks whole texels per art pixel, 16 x 16 texels -> 2). The report carries `face: {texels, bitmap, scale, texels_per_art_pixel, exact}` and warns `face_grid` when the head front is not an exact multiple of the bitmap. The procedural face features (`eyes anime`, `brow`, `mouth`, `blush`) also work at 8x8 (eyes 2 x 2 texels, hard-edged blush), mirror-symmetric on the texel grid; `bangs` keeps its uneven strands.
+
+**World gradients.** `{"type": "gradient", "space": "world", "regions": ["part:wing_a", "part:wing_b", "part:wing_c", "part:wing_d"], "lo_y": 0.75, "hi_y": 1.85, "stops": [[0, "#a49df0"], [0.45, "#d9d5fb"], [1, "#ffffff"]], "steps": 7, "texture": 0.4}`: the colour depends on the world height only, so it is continuous across every island and group (the tint follows each group's own mean brightness, so a white and a violet feather take the same ramp). `lo_<axis>` / `hi_<axis>` are blocks times `block` (set `block` to the model blocks of your authoring unit, e.g. 0.52 for art blocks), or give fractions `lo` / `hi` of the targeted bounding box; `lo > hi` reverses the ramp; `axis: x` with `abs: true` ramps with the distance from the symmetry plane. `steps` cuts N flat bands, `dither` turns band edges into a 4x4 Bayer stipple.
+
+**Iridescent wings.** `{"type": "iridescent", "regions": ["part:wing_a", "part:wing_b"], "faces": ["back"], "strength": 0.65, "steps": 5, "scale": 0.45, "normal": 0.2}` lays a stepped pastel sheen on the back faces only; the front faces keep the gradient. The material `iridescent` is the same sheen as a base material.
+
+**`quality: "pixel"`.** On a `mesh.groups` entry, a `regions` / `overlay` entry, `repaint` (`quality`) or globally (`appearance.texture.quality`): the materials `silk`, `silk_feather`, `lace`, `cloth`, `hair`, `hair_soft`, `plate_steel`, `plate_gold`, `leather`, `skin`, `skin_soft` switch to hard 2-3 tone variants: low-frequency noise sampled in texel units (the same chunky look at any density), regular patterns (2-texel strands and weave, one-texel diagonal lace mesh, a feather plank with a lighter first and darker last column, a rib and a darker tip row) and no per-texel random speckle; `skin_soft` is flat. `posterize` / `palette_snap` (put them LAST in the list) quantise whatever the features produced.
+
+**Speed.** The `skin` of the 512 atlas of the Nightingale bundle at 16 texels per art block (about 19,000 painted texels, 17 features) takes about 1.5 s to paint (about 7 s for the whole `skin` command including the preview renders); a 1024 atlas at 80 texels per block (164,000 texels) took about 20 s.
+
 
 Panels left to right: front, three-quarter, back, texture sheet (custom shapes: front, three-quarter, side, back, texture). Check: face (eyes, brow, scar, beard) on the FRONT panel; crown/hair at the top; torso emblem on the chest; plate overlay on torso, arms, legs; no large flat or empty areas; glow colors readable; ornaments crisp (strokes one cell wide, symmetric about the centre, no muddy noise) and not cut by a box seam. The preview shows the whole boss at one scale, so a boss with big wings is small in it: read `<id>_closeup.png` for the face, chest and skirt. Describe what you see to the user. Change `palette`, `regions`, `overlay`, `features`, `seed`, `texture.scale`; do not edit the PNG.
 
@@ -171,6 +213,10 @@ Panels left to right: front, three-quarter, back, texture sheet (custom shapes: 
 | `order` | `last` or `first` (last) | `last`: the bake overwrites the procedural result, features only decide texels the bake cannot reach; `first`: the bake is the base layer and features (eyes, emblems, filigree) draw over it |
 | `blend` | 0-1 (1.0) | share of the baked colour mixed over the procedural one |
 | `footprint` | 0.25-1.0 (1.0) | size of the sampled part of each texel's footprint. 1.0 = true box filter of the whole texel (lowest colour error, softest); 0.5-0.6 samples the centre of the texel only (crisper pixel-art edges, a little noisier). Never below one reference pixel |
+| `sample` | `footprint` \| `center` (footprint) | `center` = the colour of the ONE reference pixel at the texel centre (no averaging, no blending of neighbours); the pixel-faithful mode for pixel-art references |
+| `snap` | integer 0-64 (0 = off) | the art's pixel size in reference pixels: the sample point of every texel snaps to the middle of the `snap` x `snap` art pixel that contains it (and, without `sample: center`, the whole art pixel is averaged), so a texel never straddles two art pixels. `snap_origin` `[x, y]` (reference pixels) is a corner of the art pixel grid (default 0, 0) |
+
+Private pixel-faithful bake (never commit the result: reference images and textures baked from them stay out of the repo, examples must not bake): when the concept art IS pixel art (every art pixel an `n` x `n` block of identical reference pixels after upscaling), set `"sample": "center", "snap": n` (find `n` and the grid corner with `reference-info --grid`; `snap_origin` = `[x, y]` of a pixel corner), a model whose texel grid is the art's pixel grid (16 texels per art block), `"palette": 24-32` and `"smear": false`. Each texel then copies exactly one art pixel instead of a footprint average. The repo examples carry no `reference.bake`: they are procedural and decal art only.
 
 All values are validated by `validate` / `skin` (`unknown_key`, `bad_type`, `out_of_range`, `unknown_value`, `unknown_region`, `reference_unknown_view`, `duplicate_view`, `required` under `/reference/bake`).
 

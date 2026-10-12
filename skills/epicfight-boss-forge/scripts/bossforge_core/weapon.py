@@ -152,12 +152,13 @@ def display_json(category: str, visual_scale: float, appearance: Optional[dict] 
 def effective_visual_scale(w: dict, boss_scale: Optional[float] = None, is_main: bool = False) -> float:
     """Explicit `visual_scale` wins. Otherwise the boss's main weapon shrinks by 1/sqrt(mesh scale) once the mesh
     scale exceeds 1.2 (clamped 0.7-1.0; the mesh scale already enlarges whatever the boss holds). Else 1.0.
-    Staffs never shrink: their held size is solved relative to the wielder (`holdpose.staff_display`)."""
+    Staffs never shrink: their held size is solved relative to the wielder (`holdpose.staff_display`) and defaults to
+    the shape's own length (1.0 biped height, the diamond staff 0.3: `sprites.staff_default`)."""
     explicit = w.get("visual_scale")
     if explicit is not None:
         return float(explicit)
     if sprites.is_staff(w.get("category"), w.get("appearance")):
-        return 1.0
+        return sprites.staff_default(w.get("appearance"), "visual_scale")
     if is_main and boss_scale is not None and boss_scale > 1.2:
         return max(0.7, min(1.0, round(1.0 / math.sqrt(boss_scale), 2)))
     return 1.0

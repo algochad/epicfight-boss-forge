@@ -167,15 +167,34 @@ def _classify(n, front_sign: int, right_sign: int) -> str:
     return "side"
 
 
+FLAT_ISLAND = 0.985  # a UV island whose surface normals average to at least this unit length is flat: one face class for all of it
+
+
+def _oriented_normal(pos, nrm, tri):
+    """Geometric normal of a triangle, turned to agree with its vertex normals (so thin double-sided slabs, whose two sides
+    share vertex positions, keep the outward side of THEIR island)."""
+    g = efmesh.tri_normal(pos[tri.p[0]], pos[tri.p[1]], pos[tri.p[2]])
+    na, nb, nc = nrm[tri.n[0]], nrm[tri.n[1]], nrm[tri.n[2]]
+    d = g[0] * (na[0] + nb[0] + nc[0]) + g[1] * (na[1] + nb[1] + nc[1]) + g[2] * (na[2] + nb[2] + nc[2])
+    return (-g[0], -g[1], -g[2]) if d < 0.0 else g
+
+
 def _build_texels(mesh, tpl: dict, cover, overlay_parts, front_sign: int, right_sign: int, tb: float,
                   tri_tb: Optional[List[float]] = None) -> List[Texel]:
+    """One Texel per covered atlas texel. Imported meshes (`mesh.tri_island`): the face class (front / back / left / ...) of a
+    FLAT UV island comes from the island's own normal (the mean of its triangles' geometric normals, turned outward by the
+    vertex normals) for every texel of the island, so rim texels of a smooth-shaded thin slab never flip class and the two
+    sides of a double-sided feather stay front and back; a curved island (a skirt wrapped around the body) is classified per
+    texel from its interpolated normals."""
     boxes = _region_boxes(mesh, overlay_parts)
     styles = tpl.get("part_style") or {}
     pos = mesh.positions
     nrm = mesh.normals
     out = []  # type: List[Texel]
+    tis = []  # type: List[int]
     island = getattr(mesh, "tri_island", None)  # imported meshes: UV island per triangle (a group spans many islands)
-    rect_keys = []  # type: List[Tuple[str, str, int]]
+    isl_sum = {}  # type: Dict[int, List[float]]
+    gn_cache = {}  # type: Dict[int, Tuple[float, float, float]]
     for (x, y) in sorted(cover, key=lambda k: (k[1], k[0])):
         ti, l0, l1, l2 = cover[(x, y)]
         tri = mesh.tris[ti]
@@ -196,6 +215,32 @@ def _build_texels(mesh, tpl: dict, cover, overlay_parts, front_sign: int, right_
         else:
             n = (nx / nl, ny / nl, nz / nl)
         t.n = n
+        if island is not None:
+            g = gn_cache.get(ti)
+            if g is None:
+                g = gn_cache[ti] = _oriented_normal(pos, nrm, tri)
+            s = isl_sum.setdefault(island[ti], [0.0, 0.0, 0.0, 0])
+            s[0] += g[0]
+            s[1] += g[1]
+            s[2] += g[2]
+            s[3] += 1
+        out.append(t)
+        tis.append(ti)
+    flat = {}  # type: Dict[int, Tuple[float, float, float]]
+    for k, (sx, sy, sz, c) in isl_sum.items():
+        ln = math.sqrt(sx * sx + sy * sy + sz * sz)
+        if c and ln > 0.0 and ln / c >= FLAT_ISLAND:
+            flat[k] = (sx / ln, sy / ln, sz / ln)
+    rect_keys = []  # type: List[Tuple[str, str, int]]
+    isl_ids = {}  # type: Dict[Tuple[str, str, int], int]
+    for t, ti in zip(out, tis):
+        tri = mesh.tris[ti]
+        px, py, pz = t.pos
+        n = t.n
+        if island is not None:
+            fn = flat.get(island[ti])
+            if fn is not None:
+                n = t.n = fn
         t.part = tri.part
         region = mesh.region_of_tri(tri)
         t.region = region
@@ -229,8 +274,9 @@ def _build_texels(mesh, tpl: dict, cover, overlay_parts, front_sign: int, right_
         horiz = hi[2] - lo[2] if face in ("left", "right", "side") else hi[0] - lo[0]
         t.eh = max(horiz, 1e-4)
         t.ev = max(hi[1] - lo[1], 1e-4)
-        out.append(t)
-        rect_keys.append((tri.part, face, island[ti] if island is not None else 0))
+        key = (tri.part, face, island[ti] if island is not None else 0)
+        rect_keys.append(key)
+        t.isl = isl_ids.setdefault(key, len(isl_ids))
     # position inside the atlas rectangle of the (part, face) a texel belongs to: materials such as silk_feather shade
     # along and across a box face whatever its rotation
     rects = {}  # type: Dict[Tuple[str, str, int], List[int]]
@@ -269,11 +315,11 @@ def _entry_for(regions: dict, region: Optional[str], ly: float) -> dict:
 
 
 def _entry_with_style(base: dict, style: Optional[dict]) -> dict:
-    """A box's own material/color/accent win over the region default entry."""
+    """A box's own material/color/accent/quality win over the region default entry."""
     if not style:
         return base
     merged = dict(base)
-    for k in ("material", "color", "accent"):
+    for k in ("material", "color", "accent", "quality"):
         if style.get(k) is not None:
             merged[k] = style[k]
     return merged
@@ -298,19 +344,38 @@ def _resolve(palette: dict, ref, default_key: str):
         return colors.resolve(default_key, palette)
 
 
-def _shade_entry(entry: dict, t: Texel, palette: dict, seed: int):
-    c = _resolve(palette, entry.get("color"), "primary")
-    a = _resolve(palette, entry.get("accent"), "accent")
-    t.base_rgb, t.accent_rgb = c, a
-    return shade_texel(entry.get("material", "cloth"), t, c, a, seed)
+class _Shader:
+    """Shades texels from region / group / overlay entries. An entry's colours are resolved once (entries are long-lived dicts,
+    so `id(entry)` is a stable key) and its `quality` (`pixel` / `smooth`, default: `appearance.texture.quality`) picks the
+    material variant."""
 
+    def __init__(self, palette: dict, seed: int, pixel: bool):
+        self.palette = palette
+        self.seed = seed
+        self.pixel = pixel
+        self._cache = {}  # type: Dict[int, tuple]
 
-def paint(mesh, tpl: dict, ap: dict, seed: int, front_sign: Optional[int] = None, right_sign: Optional[int] = None, ref_bake=None):
+    def shade(self, entry: dict, t: Texel):
+        got = self._cache.get(id(entry))
+        if got is None:
+            q = entry.get("quality")
+            got = (_resolve(self.palette, entry.get("color"), "primary"), _resolve(self.palette, entry.get("accent"), "accent"),
+                   entry.get("material", "cloth"), self.pixel if q is None else q == "pixel", entry)
+            self._cache[id(entry)] = got
+        c, a, material, pixel, _entry = got
+        t.base_rgb, t.accent_rgb = c, a
+        t.pixel = pixel
+        return shade_texel(material, t, c, a, self.seed)
+
+def paint(mesh, tpl: dict, ap: dict, seed: int, front_sign: Optional[int] = None, right_sign: Optional[int] = None, ref_bake=None,
+          spec_dir: Optional[str] = None):
     """Paint a texture for ``mesh`` / template ``tpl`` from a normalized appearance dict.
 
-    Returns ``(canvas, info)``; info = {coverage, base_texels, overlay_texels, overlay_opaque, warnings[, bake]}.
+    Returns ``(canvas, info)``; info = {coverage, base_texels, overlay_texels, overlay_opaque, warnings[, bake][, face]}.
     ``ref_bake`` is an optional ``refbake.BakePlan``: reference pixels are baked into the texels before (`order: first`) or after
-    (`order: last`) the appearance features, and its statistics land in ``info["bake"]``.
+    (`order: last`) the appearance features, and its statistics land in ``info["bake"]``. ``spec_dir`` is the directory decal
+    files (`decal.file`) are relative to; ``appearance.texture.quality: "pixel"`` shades every entry with the pixel-art
+    variants of the materials (an entry's own `quality` wins).
     """
     custom = bool(tpl.get("custom"))
     aw, ah = tpl["authored_uv"]
@@ -367,14 +432,24 @@ def paint(mesh, tpl: dict, ap: dict, seed: int, front_sign: Optional[int] = None
     overlay_enabled = bool(ap.get("overlay_enabled", True))
     bake = overlay_to_base or not overlay_enabled  # overlay entries paint base texels instead of overlay islands
 
+    pixel = (ap.get("texture") or {}).get("quality") == "pixel"
+    shader = _Shader(palette, seed, pixel)
+    merged = {}  # type: Dict[Tuple[int, str], dict]
     for t in texels:
         if t.layer == "base":
             style = styles.get(t.part)
-            t.rgb = _shade_entry(_entry_with_style(_entry_for(regions, t.region, t.ly), style), t, palette, seed)
+            entry = _entry_for(regions, t.region, t.ly)
+            if style:
+                key = (id(entry), t.part)
+                got = merged.get(key)
+                if got is None:
+                    got = merged[key] = _entry_with_style(entry, style)
+                entry = got
+            t.rgb = shader.shade(entry, t)
             if bake and not style:
                 for o in expanded:
                     if o.matches(t):
-                        t.rgb = _shade_entry(o.entry, t, palette, seed)
+                        t.rgb = shader.shade(o.entry, t)
                         t.covered = True
         elif overlay_enabled:
             hit = None
@@ -382,9 +457,13 @@ def paint(mesh, tpl: dict, ap: dict, seed: int, front_sign: Optional[int] = None
                 if o.matches(t):
                     hit = o
             if hit is not None:
-                t.rgb = _shade_entry(hit.entry, t, palette, seed)
+                t.rgb = shader.shade(hit.entry, t)
 
     st = PaintState(texels, palette, seed, tb)
+    st.warnings = warnings
+    st.spec_dir = spec_dir
+    st.front_sign, st.right_sign = fs, rs
+    st.pixel = pixel
     bake_stats = None
     bake_args = (texels, cover, mesh, (w, h), tpl.get("uv_origin", "top"), fs, rs)
     if ref_bake is not None and ref_bake.cfg["order"] == "first":
@@ -393,8 +472,9 @@ def paint(mesh, tpl: dict, ap: dict, seed: int, front_sign: Optional[int] = None
     if tpl.get("mesh_source"):  # `box:<glob>` names the GROUPS of an imported mesh (a part: target)
         from . import meshsrc
         feats = meshsrc.retarget_features(feats)
-    for f in feats:
+    for i, f in enumerate(feats):
         if isinstance(f, dict):
+            st.path = "/appearance/features/%d" % i
             features.apply_feature(st, f)
     if ref_bake is not None and ref_bake.cfg["order"] == "last":
         bake_stats = ref_bake.apply(*bake_args)
@@ -462,6 +542,7 @@ def paint(mesh, tpl: dict, ap: dict, seed: int, front_sign: Optional[int] = None
     }
     if bake_stats is not None:
         info["bake"] = bake_stats
+    info.update(st.info)
     return canvas, info
 
 
@@ -506,7 +587,7 @@ def generate_with_report(n: dict, ctx):
     if n.get("reference"):
         from . import refbake  # lazy: bosses without a reference never load it
         bake = refbake.plan_for(n)
-    canvas, info = paint(mesh, tpl, ap, int(n["seed"]), ref_bake=bake)
+    canvas, info = paint(mesh, tpl, ap, int(n["seed"]), ref_bake=bake, spec_dir=n.get("_spec_dir"))
     preview = render_preview(mesh, tpl, canvas)
     tex_bytes = write_png(None, canvas)
     prev_bytes = write_png(None, preview)

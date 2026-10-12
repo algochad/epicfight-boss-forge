@@ -205,11 +205,13 @@
         "hooked",
         "broad",
         "crystal_staff",
-        "orb_staff"
+        "orb_staff",
+        "diamond_staff"
       ],
       "resolutions": {
         "crystal_staff": [64, 32],
-        "orb_staff": [64, 32]
+        "orb_staff": [64, 32],
+        "diamond_staff": [64, 32]
       }
     }
   }

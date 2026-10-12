@@ -23,7 +23,7 @@ The same character twice, from a reference sheet. With boxes (seraph wings, bun 
 
 ![Nightingale in game](docs/images/nightingale-ingame.png)
 
-As a Blender-modelled mesh (smooth skinning, 9.7k triangles, 18 material groups, procedural 1024 texture): `assets/examples/nightingale-blender/` (build script, spec, exported bundle). Viewed textured in Blender (`bossforge blender view`) and in game:
+As a Blender-modelled pixel-art mesh (1/16-block grid, smooth skinning, 4k triangles, 24 material groups, procedural 512 texture at 16 texels per block painted with decals, stepped gradients and iridescent faces; harness, laurel and glyph on the back): `assets/examples/nightingale-blender/` (build script, spec, exported bundle). Viewed textured in Blender (`bossforge blender view`) and in game:
 
 ![Nightingale (Blender mesh) viewed in Blender](docs/images/nightingale-blender-views.png)
 

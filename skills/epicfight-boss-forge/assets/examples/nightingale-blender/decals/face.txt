@@ -1,0 +1,20 @@
+; Nightingale face, 8x8 art pixels on the head front (1 pixel = 1 texel).
+; Peach skin, brown eyes with a white highlight beside the iris, dark brows on the lid line, rose mouth, blush.
+@H #9a5a38
+@D #5a3018
+@h #b8743f
+@s #ffd6b2
+@t #e8b290
+@w #ffffff
+@i #8c5a3a
+@n #f7c6a2
+@p #e8907e
+@b #f6ab92
+HHHssHHH
+HHssssHH
+HHssssHH
+HDDssDDH
+HwissiwH
+tbsnnsbt
+sssppsss
+bbssssbb

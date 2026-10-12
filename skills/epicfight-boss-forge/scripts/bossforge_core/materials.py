@@ -6,6 +6,12 @@ Coordinates: ``texel.p`` is the model position in model pixels (16 per block; th
 Minecraft pixel-art noise was tuned in) and ``texel.pos`` is the same position in blocks. Materials that
 describe pixel grain (skin, hair, steel streaks, leather, mail, cloth) use ``p``; materials that describe
 patterns with a physical size (seams, fur, bone, stone, scales, ember cracks) use ``pos``.
+
+Quality: a texel whose ``pixel`` flag is set (`quality: "pixel"` on the region / group / `repaint` entry, or
+`appearance.texture.quality`) is shaded by the material's PIXEL variant (`PIXEL_FUNCS`): two or three hard tones from
+low-frequency noise sampled in TEXEL units (``pos / tb``, so the look is the same at any texel density) and regular
+patterns instead of per-texel random speckle. Materials without a pixel variant (fur, bone, stone, scales, ember,
+chainmail) ignore the flag.
 """
 from __future__ import annotations
 
@@ -14,6 +20,7 @@ from typing import Callable, Dict, Optional, Tuple
 
 from .colors import clamp8, luminance, mix, shade
 from .noise import fbm, hash01, vnoise
+from .pixelart import DEFAULT_IRIDESCENT_STEPS, IRIDESCENT_DIR, PASTEL, sheen_color, sheen_over, sheen_phase
 
 RGB = Tuple[int, int, int]
 
@@ -22,7 +29,7 @@ class Texel:
     """One painted texture texel with the surface context features and materials need."""
     __slots__ = ("x", "y", "pos", "p", "n", "part", "region", "layer", "lx", "ly", "lz", "face",
                  "fu", "fv", "eh", "ev", "tb", "m", "vr", "u", "v", "ru", "rv", "rnu", "rnv", "styled", "covered",
-                 "base_rgb", "accent_rgb", "rgb")
+                 "base_rgb", "accent_rgb", "rgb", "isl", "pixel")
 
     def __init__(self, x: int, y: int):
         self.x = x
@@ -55,6 +62,8 @@ class Texel:
         self.base_rgb = None  # type: Optional[RGB]  # colour / accent the base material was shaded with (feature `repaint` reuses them)
         self.accent_rgb = None  # type: Optional[RGB]
         self.rgb = None  # type: Optional[RGB]
+        self.isl = 0  # id of the UV island (atlas rectangle of one face of one part) the texel belongs to
+        self.pixel = False  # shade with the pixel-art variant of the material (hard 2-3 tone bands)
 
 
 def _scale(r: float, g: float, b: float, f: float) -> RGB:
@@ -275,6 +284,140 @@ def _worley(x: float, y: float, z: float, seed: int):
     return f1, f2, best
 
 
+# --------------------------------------------------------------------------- iridescent
+IRIDESCENT_CYCLE_TEXELS = 14.0  # the material's colour cycle, in texels
+IRIDESCENT_STRENGTH = 0.5
+
+
+def iridescent(t: Texel, c, a, s: int) -> RGB:
+    """The base colour under a soft pastel sheen (pink, peach, yellow, lilac, aqua) that drifts with the world position and
+    the face normal: continuous in smooth mode, five chunky bands in pixel mode. The `iridescent` feature does the same on
+    chosen faces on top of any base colour, with configurable palette, strength and steps."""
+    ph = sheen_phase(t.pos, t.n, IRIDESCENT_CYCLE_TEXELS * t.tb, IRIDESCENT_DIR, 0.5)
+    sh = sheen_color(PASTEL, ph, DEFAULT_IRIDESCENT_STEPS if t.pixel else 0)
+    return sheen_over(c, sh, IRIDESCENT_STRENGTH)
+
+
+# --------------------------------------------------------------------------- pixel variants (quality: pixel)
+def _q(t: Texel) -> Tuple[float, float, float]:
+    """World position of the texel in texel units: low-frequency noise sampled here has the same look at any density."""
+    k = 1.0 / max(t.tb, 1e-6)
+    p = t.pos
+    return p[0] * k, p[1] * k, p[2] * k
+
+
+def _tone(n: float, lo: float = 0.4, hi: float = 0.6) -> int:
+    """Hard band of a 0..1 noise value: 0 below `lo`, 2 above `hi`, else 1."""
+    return 0 if n < lo else 2 if n > hi else 1
+
+
+_TONES = (0.92, 1.0, 1.07)
+_TONES_WIDE = (0.8, 1.0, 1.15)
+
+
+def skin_px(t: Texel, c, a, s: int) -> RGB:
+    qx, qy, qz = _q(t)
+    f = _TONES[_tone(vnoise(qx * 0.06, qy * 0.06, qz * 0.06, s + 20))] * (1.04 if t.face == "top" else 1.0)
+    return _scale(c[0], c[1], c[2], 0.5 * (f + 1.0))  # skin tones stay close to the base colour
+
+
+def skin_soft_px(t: Texel, c, a, s: int) -> RGB:
+    return _scale(c[0], c[1], c[2], 1.04 if t.face == "top" else 1.0)
+
+
+def _strand(t: Texel, width_texels: float) -> int:
+    return int(math.floor(t.u / max(width_texels * t.tb, 1e-4)))
+
+
+def hair_px(t: Texel, c, a, s: int) -> RGB:
+    return shade(c, (0.75, 1.0, 1.22)[int(hash01(_strand(t, 2.0), 11, 0, s + 11) * 2.999)])
+
+
+def hair_soft_px(t: Texel, c, a, s: int) -> RGB:
+    """Strands two texels wide with one of three flat tones, a lighter gloss band two texels tall near the top of the box and a
+    darker underside: no streak sparkles, no gradients inside a strand."""
+    out = shade(c, _TONES_WIDE[int(hash01(_strand(t, 2.0), 11, 0, s + 11) * 2.999)])
+    if abs(t.ly - 0.8) * t.ev / max(t.tb, 1e-6) < 1.0:
+        out = mix(out, shade(c, 1.5), 0.55)
+    if t.ly < 0.14 or t.face == "bottom":
+        out = shade(out, 0.82)
+    return out
+
+
+def plate_steel_px(t: Texel, c, a, s: int) -> RGB:
+    """Three tone bands of low-frequency noise plus the seam lines and rivets of the smooth variant (one texel thick)."""
+    qx, qy, qz = _q(t)
+    f = (0.62, 0.95, 1.12)[_tone(vnoise(qx * 0.07, qy * 0.07, qz * 0.07, s + 1), 0.38, 0.62)]
+    bx, by, bz = t.pos
+    period_y, period_xz = 0.33, 0.5
+    tb = t.tb
+    dy = abs(by - _round_half_up(by / period_y) * period_y)
+    sxz = bx + bz
+    dxz = abs(sxz - _round_half_up(sxz / period_xz) * period_xz)
+    if dy < 0.5 * max(0.05 * period_y, tb) or dxz < 0.5 * max(0.04 * period_xz, tb):
+        f *= 0.6
+    if dy < 0.5 * tb and dxz < 0.5 * tb:
+        f *= 1.45
+    return _scale(c[0], c[1], c[2], f)
+
+
+def plate_gold_px(t: Texel, c, a, s: int) -> RGB:
+    qx, qy, qz = _q(t)
+    k = _tone(vnoise(qx * 0.08, qy * 0.08, qz * 0.08, s + 3), 0.4, 0.62)
+    if k == 0:
+        return shade(c, 0.66)
+    if k == 2:
+        return mix(c, (255, 255, 255), 0.35)
+    return (int(c[0]), int(c[1]), int(c[2]))
+
+
+def leather_px(t: Texel, c, a, s: int) -> RGB:
+    qx, qy, qz = _q(t)
+    f = (0.78, 1.0, 1.1)[_tone(vnoise(qx * 0.08, qy * 0.08, qz * 0.08, s + 4))]
+    return _scale(c[0], c[1], c[2], f * (0.94 if ((t.x // 2 + t.y // 2) & 1) else 1.0))
+
+
+def cloth_px(t: Texel, c, a, s: int) -> RGB:
+    """Three tone bands and a 2-texel weave checker (6%): the weave is a regular pattern, not noise."""
+    qx, qy, qz = _q(t)
+    f = (0.88, 1.0, 1.1)[_tone(vnoise(qx * 0.08, qy * 0.06, qz * 0.08, s + 30))]
+    return _scale(c[0], c[1], c[2], f * (0.94 if ((t.x // 2 + t.y // 2) & 1) else 1.0))
+
+
+def silk_px(t: Texel, c, a, s: int) -> RGB:
+    """Three flat tone bands (about 12 texels wide): soft shifts of a drape without any texel-level noise."""
+    qx, qy, qz = _q(t)
+    return shade(c, _TONES[_tone(vnoise(qx * 0.07, qy * 0.05, qz * 0.07, s + 36))])
+
+
+def lace_px(t: Texel, c, a, s: int) -> RGB:
+    """A two-tone base and a regular one-texel diagonal mesh (every fourth diagonal)."""
+    qx, qy, qz = _q(t)
+    base = shade(c, 0.97 if vnoise(qx * 0.06, qy * 0.05, qz * 0.06, s + 39) < 0.5 else 1.04)
+    step = max(1, t.m)
+    d1 = (t.x // step + t.y // step) % 4
+    d2 = (t.x // step - t.y // step) % 4
+    return shade(base, 0.93) if d1 == 0 or d2 == 0 else base
+
+
+def silk_feather_px(t: Texel, c, a, s: int) -> RGB:
+    """A broad plank: flat base tone, a lighter first column and a darker last column (a plank in the light, from three columns
+    on), a one-texel rib down the middle (a touch darker on white feathers, lighter on tinted ones) and a darker tip row.
+    Rows and columns follow the face rectangle (ru, rv), so it works on every feather however it is rotated."""
+    out = (int(c[0]), int(c[1]), int(c[2]))
+    cols = int(round(1.0 / t.rnu)) if t.rnu > 0 else 1
+    if cols >= 3:
+        if t.ru < 1.5 * t.rnu:
+            out = shade(out, 1.05)
+        elif t.ru > 1.0 - 1.5 * t.rnu:
+            out = shade(out, 0.93)
+    if cols >= 5 and abs(t.ru - 0.5) <= 0.5 * t.rnu + 1e-9:
+        out = shade(out, 0.95) if luminance(c) > 0.86 else mix(out, (255, 255, 255), 0.3)
+    if t.rv > 1.0 - 1.5 * t.rnv:
+        out = shade(out, 0.93)
+    return out
+
+
 MATERIAL_FUNCS = {
     "skin": skin,
     "skin_soft": skin_soft,
@@ -293,10 +436,30 @@ MATERIAL_FUNCS = {
     "stone": stone,
     "scales": scales,
     "ember": ember,
+    "iridescent": iridescent,
+}  # type: Dict[str, Callable]
+
+PIXEL_FUNCS = {
+    "skin": skin_px,
+    "skin_soft": skin_soft_px,
+    "hair": hair_px,
+    "hair_soft": hair_soft_px,
+    "plate_steel": plate_steel_px,
+    "plate_gold": plate_gold_px,
+    "leather": leather_px,
+    "cloth": cloth_px,
+    "silk": silk_px,
+    "lace": lace_px,
+    "silk_feather": silk_feather_px,
 }  # type: Dict[str, Callable]
 
 
 def shade_texel(material: str, t: Texel, c, a, seed: int) -> RGB:
-    """Evaluate a named material; unknown names fall back to cloth (validation reports them elsewhere)."""
+    """Evaluate a named material (its pixel variant when the texel's `pixel` flag is set and the material has one); unknown
+    names fall back to cloth (validation reports them elsewhere)."""
+    if t.pixel:
+        fn = PIXEL_FUNCS.get(material)
+        if fn is not None:
+            return fn(t, c, a, seed)
     fn = MATERIAL_FUNCS.get(material) or cloth
     return fn(t, c, a, seed)

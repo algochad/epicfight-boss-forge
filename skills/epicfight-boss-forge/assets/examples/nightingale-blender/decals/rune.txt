@@ -1,0 +1,6 @@
+; Glowing cyan rune on the back of each boot shaft (3 x 3 plate): C = rune, d = dark core.
+@C #b4ffff
+@d #3c8296
+CdC
+dCd
+CdC

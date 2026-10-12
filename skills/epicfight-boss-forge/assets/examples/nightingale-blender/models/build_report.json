@@ -1,115 +1,172 @@
 {
  "ok": true,
  "id": "nightingale",
- "triangles": 9732,
- "vertices": 5408,
- "atlas": 1024,
+ "triangles": 3974,
+ "vertices": 2468,
+ "atlas": 512,
  "texel_scale": 1.0,
+ "texel_density": 16.0,
+ "texels_per_model_block": 30.769,
+ "pixel_blocks": 0.0325,
  "density_texels_per_block": {
   "boots": {
-   "min": 67.67,
-   "max": 73.84,
-   "mean": 71.54
+   "min": 30.77,
+   "max": 30.77,
+   "mean": 30.77,
+   "area": 30.77
+  },
+  "glyph": {
+   "min": 30.77,
+   "max": 30.77,
+   "mean": 30.77,
+   "area": 30.77
   },
   "hair": {
-   "min": 120.83,
-   "max": 181.25,
-   "mean": 161.17
+   "min": 27.93,
+   "max": 31.48,
+   "mean": 30.72,
+   "area": 30.94
+  },
+  "harness": {
+   "min": 21.98,
+   "max": 38.46,
+   "mean": 30.75,
+   "area": 30.7
+  },
+  "harness_gold": {
+   "min": 21.98,
+   "max": 41.03,
+   "mean": 31.27,
+   "area": 31.06
+  },
+  "lace": {
+   "min": 22.08,
+   "max": 40.84,
+   "mean": 30.7,
+   "area": 30.35
+  },
+  "laurel": {
+   "min": 30.77,
+   "max": 30.77,
+   "mean": 30.77,
+   "area": 30.77
   },
   "leather": {
-   "min": 59.66,
-   "max": 69.05,
-   "mean": 64.67
+   "min": 30.77,
+   "max": 30.77,
+   "mean": 30.77,
+   "area": 30.77
   },
   "ornament": {
-   "min": 80.56,
-   "max": 120.83,
-   "mean": 96.27
+   "min": 30.77,
+   "max": 61.54,
+   "mean": 38.9,
+   "area": 33.23
   },
   "pauldron": {
-   "min": 77.98,
-   "max": 82.86,
-   "mean": 79.92
+   "min": 30.77,
+   "max": 30.77,
+   "mean": 30.77,
+   "area": 30.77
   },
   "ribbon": {
-   "min": 68.0,
-   "max": 192.2,
-   "mean": 109.74
+   "min": 25.55,
+   "max": 61.54,
+   "mean": 35.61,
+   "area": 30.54
   },
   "robe": {
-   "min": 69.71,
-   "max": 73.14,
-   "mean": 71.83
+   "min": 29.54,
+   "max": 30.77,
+   "mean": 30.66,
+   "area": 30.63
+  },
+  "rune": {
+   "min": 30.77,
+   "max": 61.54,
+   "mean": 41.03,
+   "area": 32.64
   },
   "skin": {
-   "min": 94.94,
-   "max": 230.51,
-   "mean": 118.55
+   "min": 30.0,
+   "max": 33.96,
+   "mean": 30.96,
+   "area": 30.84
   },
   "skirt": {
-   "min": 71.74,
-   "max": 73.13,
-   "mean": 72.29
+   "min": 29.6,
+   "max": 31.66,
+   "mean": 30.81,
+   "area": 30.91
   },
   "tabard": {
-   "min": 55.56,
-   "max": 72.65,
-   "mean": 65.73
+   "min": 30.77,
+   "max": 31.91,
+   "mean": 30.94,
+   "area": 31.24
   },
   "trim": {
-   "min": 77.33,
-   "max": 85.29,
-   "mean": 80.89
+   "min": 28.04,
+   "max": 31.04,
+   "mean": 30.55,
+   "area": 30.41
   },
   "vial_g": {
-   "min": 113.28,
-   "max": 127.94,
-   "mean": 120.62
+   "min": 61.54,
+   "max": 123.08,
+   "mean": 68.38,
+   "area": 62.65
   },
   "vial_r": {
-   "min": 113.28,
-   "max": 127.94,
-   "mean": 120.62
+   "min": 61.54,
+   "max": 123.08,
+   "mean": 66.67,
+   "area": 62.36
   },
   "vial_v": {
-   "min": 113.28,
-   "max": 127.94,
-   "mean": 120.62
+   "min": 61.54,
+   "max": 123.08,
+   "mean": 68.38,
+   "area": 62.65
   },
   "wing_a": {
-   "min": 62.5,
-   "max": 100.0,
-   "mean": 79.69
+   "min": 26.11,
+   "max": 35.18,
+   "mean": 30.93,
+   "area": 30.78
   },
   "wing_b": {
-   "min": 54.62,
-   "max": 104.89,
-   "mean": 83.57
+   "min": 29.16,
+   "max": 34.32,
+   "mean": 30.88,
+   "area": 30.83
   },
   "wing_c": {
-   "min": 67.16,
-   "max": 93.29,
-   "mean": 77.34
+   "min": 30.13,
+   "max": 32.22,
+   "mean": 30.91,
+   "area": 30.88
   },
   "wing_d": {
-   "min": 66.42,
-   "max": 90.62,
-   "mean": 77.34
+   "min": 29.74,
+   "max": 31.61,
+   "mean": 30.64,
+   "area": 30.68
   }
  },
  "weights": {
-  "vertices": 5408,
+  "vertices": 2468,
   "unweighted": 0,
   "max_influences": 3,
-  "min_total": 0.9999989718198776,
-  "max_total": 1.0000010132789612
+  "min_total": 0.9999999701976776,
+  "max_total": 1.0000000298023224
  },
  "export": {
   "ok": true,
-  "triangles": 9732,
-  "positions": 5414,
-  "uvs": 9015,
-  "normals": 3904,
+  "triangles": 3974,
+  "positions": 2474,
+  "uvs": 5023,
+  "normals": 665,
   "groups": [
    "skin",
    "hair",
@@ -128,50 +185,56 @@
    "wing_a",
    "wing_b",
    "wing_c",
-   "wing_d"
+   "wing_d",
+   "harness",
+   "harness_gold",
+   "glyph",
+   "laurel",
+   "lace",
+   "rune"
   ],
   "max_influences": 3,
-  "height": 1.8269,
+  "height": 1.9174,
   "bounds": {
    "min": [
-    -0.9248,
-    -0.2462,
+    -1.0688,
+    -0.3819,
     0.0
    ],
    "max": [
-    0.8866,
-    0.2338,
-    1.8269
+    1.0688,
+    0.2925,
+    1.9174
    ]
   },
   "facing": {
    "verdict": "forward",
-   "foot_offset_y": 0.1087,
-   "samples": 8
+   "foot_offset_y": 0.1412,
+   "samples": 32
   },
   "check_mesh_json": [],
   "errors": [],
   "warnings": [
    {
     "code": "triangulated",
-    "message": "4686 faces are not triangles (quads/ngons) and were triangulated on export",
-    "count": 4686
+    "message": "1742 faces are not triangles (quads/ngons) and were triangulated on export",
+    "count": 1742
    }
   ],
   "influence_histogram": {
-   "1": 4568,
-   "2": 656,
-   "3": 184
+   "1": 2076,
+   "2": 384,
+   "3": 8
   },
   "triangles_by_part": {
-   "head": 1595,
+   "head": 616,
    "hat": 1,
-   "torso": 7219,
+   "torso": 2086,
    "jacket": 1,
-   "rightArm": 260,
-   "leftArm": 260,
-   "rightLeg": 199,
-   "leftLeg": 199,
+   "rightArm": 140,
+   "leftArm": 140,
+   "rightLeg": 496,
+   "leftLeg": 496,
    "rightSleeve": 1,
    "leftSleeve": 1,
    "rightPants": 1,
@@ -183,10 +246,10 @@
   "nightingale.meshmeta.json"
  ],
  "bundle_weights": {
-  "positions": 5414,
+  "positions": 2474,
   "without_weights": 0,
   "max_influences": 3,
-  "min_total": 0.9999999999999999,
+  "min_total": 1.0,
   "max_total": 1.0,
   "joints_used": 14
  },
@@ -195,156 +258,182 @@
    "legs": {
     "inside": 0,
     "max_depth": 0.0,
-    "samples": 2458
+    "samples": 3634,
+    "inside_raw": 0
    },
    "arms": {
-    "inside": 3,
-    "max_depth": 0.0041,
-    "samples": 38306
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 14380,
+    "inside_raw": 0
    }
   },
   "right_leg_forward_60": {
    "legs": {
     "inside": 0,
     "max_depth": 0.0,
-    "samples": 2458
+    "samples": 3634,
+    "inside_raw": 0
    },
    "arms": {
-    "inside": 3,
-    "max_depth": 0.0041,
-    "samples": 38306
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 14380,
+    "inside_raw": 0
    }
   },
   "right_leg_back_60": {
    "legs": {
     "inside": 0,
     "max_depth": 0.0,
-    "samples": 2458
+    "samples": 3634,
+    "inside_raw": 0
    },
    "arms": {
-    "inside": 3,
-    "max_depth": 0.0041,
-    "samples": 38306
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 14380,
+    "inside_raw": 0
    }
   },
   "left_leg_forward_60": {
    "legs": {
     "inside": 0,
     "max_depth": 0.0,
-    "samples": 2458
+    "samples": 3634,
+    "inside_raw": 0
    },
    "arms": {
-    "inside": 3,
-    "max_depth": 0.0041,
-    "samples": 38306
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 14380,
+    "inside_raw": 0
    }
   },
   "legs_split_60": {
    "legs": {
     "inside": 0,
     "max_depth": 0.0,
-    "samples": 2458
+    "samples": 3634,
+    "inside_raw": 0
    },
    "arms": {
-    "inside": 3,
-    "max_depth": 0.0041,
-    "samples": 38306
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 14380,
+    "inside_raw": 0
    }
   },
   "legs_out_30": {
    "legs": {
     "inside": 0,
     "max_depth": 0.0,
-    "samples": 2458
+    "samples": 3634,
+    "inside_raw": 0
    },
    "arms": {
-    "inside": 3,
-    "max_depth": 0.0041,
-    "samples": 38306
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 14380,
+    "inside_raw": 0
    }
   },
   "knee_bend_60": {
    "legs": {
     "inside": 0,
     "max_depth": 0.0,
-    "samples": 2458
+    "samples": 3634,
+    "inside_raw": 0
    },
    "arms": {
-    "inside": 3,
-    "max_depth": 0.0041,
-    "samples": 38306
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 14380,
+    "inside_raw": 0
    }
   },
   "arms_forward_60": {
    "legs": {
     "inside": 0,
     "max_depth": 0.0,
-    "samples": 2458
+    "samples": 3634,
+    "inside_raw": 0
    },
    "arms": {
-    "inside": 16,
-    "max_depth": 0.0035,
-    "samples": 38306
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 14380,
+    "inside_raw": 0
    }
   },
   "arms_side_60": {
    "legs": {
     "inside": 0,
     "max_depth": 0.0,
-    "samples": 2458
+    "samples": 3634,
+    "inside_raw": 0
    },
    "arms": {
-    "inside": 23,
-    "max_depth": 0.0105,
-    "samples": 38306
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 14380,
+    "inside_raw": 43
    }
   },
   "arms_back_20": {
    "legs": {
     "inside": 0,
     "max_depth": 0.0,
-    "samples": 2458
+    "samples": 3634,
+    "inside_raw": 0
    },
    "arms": {
-    "inside": 1801,
-    "max_depth": 0.0492,
-    "samples": 38306
+    "inside": 4,
+    "max_depth": 0.009,
+    "samples": 14380,
+    "inside_raw": 4
    }
   },
   "arms_back_45": {
    "legs": {
     "inside": 0,
     "max_depth": 0.0,
-    "samples": 2458
+    "samples": 3634,
+    "inside_raw": 0
    },
    "arms": {
-    "inside": 3786,
-    "max_depth": 0.0826,
-    "samples": 38306
+    "inside": 44,
+    "max_depth": 0.0361,
+    "samples": 14380,
+    "inside_raw": 65
    }
   },
   "head_turn_40": {
    "legs": {
     "inside": 0,
     "max_depth": 0.0,
-    "samples": 2458
+    "samples": 3634,
+    "inside_raw": 0
    },
    "arms": {
-    "inside": 22,
-    "max_depth": 0.0053,
-    "samples": 38306
+    "inside": 0,
+    "max_depth": 0.0,
+    "samples": 14380,
+    "inside_raw": 0
    }
   },
   "torso_twist_30": {
    "legs": {
     "inside": 0,
     "max_depth": 0.0,
-    "samples": 2458
+    "samples": 3634,
+    "inside_raw": 0
    },
    "arms": {
-    "inside": 147,
-    "max_depth": 0.0267,
-    "samples": 38306
+    "inside": 21,
+    "max_depth": 0.0217,
+    "samples": 14380,
+    "inside_raw": 55
    }
   }
  }

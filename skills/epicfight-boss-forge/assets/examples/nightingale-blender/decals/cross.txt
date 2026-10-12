@@ -1,0 +1,11 @@
+; Glowing cyan latin cross with a one-texel halo (chest). c = hot core, C = cyan body, g = halo.
+@c #f4ffff
+@C #38e6fa
+@g #8fe4f2
+..g..
+.gCg.
+gCcCg
+.gcg.
+.gcg.
+.gCg.
+..g..

@@ -560,27 +560,31 @@ def _summary(root, res, warnings, wiring, qa_errs) -> dict:
 
 
 def _stage_references(raw_bytes: bytes, spec_path) -> Tuple[bytes, List[GenFile]]:
-    """A spec with a `reference` block points at image files next to the spec. The project copy lives in
-    `bossforge/bosses/`, so copy every referenced image (view images and mask images) to `bossforge/refs/<sha8>_<name>`
-    and rewrite the paths in the copy to `../refs/...`; regeneration from the project then finds them."""
+    """A spec can point at files next to it: reference images (`reference.views`, never shipped), and decal bitmaps
+    (`appearance.features[].file`, type `decal`). The project copy lives in `bossforge/bosses/`, so copy every
+    referenced file into the project (images to `bossforge/refs/<sha8>_<name>`, decals to `bossforge/decals/<name>`)
+    and rewrite the paths in the copy (`../refs/...`, `../decals/...`); regeneration from the project then finds them."""
     import hashlib
     try:
         d = json.loads(raw_bytes.decode("utf-8"))
     except ValueError:
         return raw_bytes, []
-    views = (d.get("reference") or {}).get("views") if isinstance(d, dict) else None
-    if not isinstance(views, dict):
+    if not isinstance(d, dict):
         return raw_bytes, []
     base = Path(spec_path).resolve().parent
     staged: Dict[str, str] = {}
     out: List[GenFile] = []
 
+    def source(rel: str) -> Optional[Path]:
+        src = Path(rel) if Path(rel).is_absolute() else base / rel
+        return src if src.is_file() else None
+
     def stage(holder: dict, key: str) -> None:
         rel = holder.get(key)
         if not isinstance(rel, str):
             return
-        src = Path(rel) if Path(rel).is_absolute() else base / rel
-        if not src.is_file():
+        src = source(rel)
+        if src is None:
             return
         if rel not in staged:
             data = src.read_bytes()
@@ -589,11 +593,32 @@ def _stage_references(raw_bytes: bytes, spec_path) -> Tuple[bytes, List[GenFile]
             out.append(GenFile("bossforge/refs/" + name, data, "reference"))
         holder[key] = staged[rel]
 
-    for v in views.values():
-        if isinstance(v, dict):
-            stage(v, "image")
-            if isinstance(v.get("mask"), dict):
-                stage(v["mask"], "image")
+    def stage_decal(holder: dict) -> None:
+        rel = holder.get("file")
+        if not isinstance(rel, str):
+            return
+        src = source(rel)
+        if src is None:
+            return
+        if rel not in staged:
+            staged[rel] = "../decals/" + src.name
+            out.append(GenFile("bossforge/decals/" + src.name, src.read_bytes(), "decal"))
+        holder["file"] = staged[rel]
+
+    views = (d.get("reference") or {}).get("views")
+    if isinstance(views, dict):
+        for v in views.values():
+            if isinstance(v, dict):
+                stage(v, "image")
+                if isinstance(v.get("mask"), dict):
+                    stage(v["mask"], "image")
+    features = (d.get("appearance") or {}).get("features")
+    if isinstance(features, list):
+        for f in features:
+            if isinstance(f, dict) and f.get("type") == "decal":
+                stage_decal(f)
+    if not out:
+        return raw_bytes, []
     return (json.dumps(d, indent=2, ensure_ascii=False) + "\n").encode("utf-8"), out
 
 

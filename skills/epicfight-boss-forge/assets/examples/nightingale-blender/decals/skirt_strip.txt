@@ -1,0 +1,13 @@
+; Skirt half panel (projected from the front, right half = viewer-left): blue outer border, cream filigree dots, cream
+; inner edge along the slit (on the right) and a cream hem line. B = blue, # = cream.
+@B #6a9acf
+@# #fff8e0
+BB....#
+BB....#
+BB.#..#
+.B....#
+.B..#.#
+.BB...#
+..B.#.#
+..BB..#
+...B###

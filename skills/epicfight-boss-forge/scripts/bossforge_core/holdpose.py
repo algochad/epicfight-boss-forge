@@ -31,7 +31,7 @@ Mat = Tuple[Vec, Vec, Vec]  # three rows
 POSE = "hold_spear"  # the animation EF plays for a held spear/staff in the two-hand style (mobs and players)
 
 # `hold` knobs (weapon object): name -> (low, high); `facing` and `offset` are checked separately
-HOLD_LIMITS = {"lean": (-45.0, 60.0), "side": (-45.0, 45.0), "grip": (0.1, 0.8)}
+HOLD_LIMITS = {"lean": (-45.0, 60.0), "side": (-90.0, 90.0), "grip": (0.1, 0.8)}
 HOLD_FACING = ("front", "side")
 HOLD_OFFSET_LIMIT = 1.0
 DEFAULT_LEAN = 10.0
@@ -207,6 +207,11 @@ def check_hold(hold: object, path: str = "/hold") -> List[Tuple[str, str, str]]:
         else:
             errs.append((path + "/" + k, "unknown_key", "unknown hold key %r; allowed: %s" % (
                 k, ", ".join(sorted(list(HOLD_LIMITS) + ["facing", "offset"])))))
+    if not errs and hold.get("facing") == "side":
+        axis = _target_axis(float(hold.get("lean", DEFAULT_LEAN)), float(hold.get("side", 0.0)))
+        if abs(axis[0]) > 0.995:  # the sprite plane cannot face along its own axis
+            errs.append((path + "/facing", "out_of_range", "facing side needs a staff axis that does not point along the wielder's left-right "
+                         "direction (side %s with lean %s does)" % (hold.get("side", 0.0), hold.get("lean", DEFAULT_LEAN))))
     return errs
 
 
@@ -217,7 +222,7 @@ def staff_display(appearance: Optional[dict], visual_scale: float = 1.0, hold: O
     The staff axis (butt -> tip, from `sprites.staff_geometry`) is turned to point up, leaned `hold.lean` degrees forward
     (default 10) and `hold.side` degrees outward (default 0); the sprite plane faces the front (`hold.facing: front`,
     default) or the wielder's right side. The hand grips the axis at the fraction `hold.grip` from the foot (default
-    `sprites.STAFF_GRIP`), shifted by `hold.offset` blocks in the hand frame. The staff is `visual_scale` times the stock
+    `sprites.staff_default(appearance, "grip")`), shifted by `hold.offset` blocks in the hand frame. The staff is `visual_scale` times the stock
     biped height long (1.8 blocks at entity scale 1; Epic Fight multiplies by the wielder's scale, so it stays in
     proportion to the wielder). The result is exact for the `pose` animation (default hold_spear) and degrades smoothly in
     other poses (see `references/weapon-forge.md`).
@@ -242,7 +247,7 @@ def staff_display(appearance: Optional[dict], visual_scale: float = 1.0, hold: O
     if scale_xy > MAX_SCALE:
         raise BossForgeError("/visual_scale", "out_of_range", "a staff this long needs display scale %.2f > %s" % (scale_xy, MAX_SCALE))
     scale_xy = _num(scale_xy, 4)
-    g = float(h.get("grip", sprites.STAFF_GRIP))
+    g = float(h.get("grip", sprites.staff_default(appearance, "grip")))
     grip = (butt[0] + g * (tip[0] - butt[0]) - 0.5, butt[1] + g * (tip[1] - butt[1]) - 0.5, 0.0)
     off = h.get("offset") or (0.0, 0.0, 0.0)
     turned = _apply(rd, (scale_xy * grip[0], scale_xy * grip[1], 0.0))

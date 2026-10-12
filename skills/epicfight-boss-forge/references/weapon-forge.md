@@ -4,7 +4,7 @@ Every boss weapon is a real Forge item the player can obtain, with an Epic Fight
 
 ## Weapon object
 
-`{id, display_name, category, rarity (common|uncommon|rare|epic; rare), damage (1-40), attack_speed (-4.0..0.0), durability (100-5000), ef{impact, armor_negation, max_strikes, damage_bonus?, speed_bonus?}, appearance{blade, guard, grip, accent, gem, glow, motif plain|fuller|runes|serrated, shape, guard_shape, pommel_shape, length 0.8-1.15, width 0.7-1.4, resolution 32|64, rings 0-4, spikes 2-5}, visual_scale 0.4-1.5, hold{lean, side, grip, facing, offset} (staff shapes only), effects[{on:"hit", effect, duration:100, amplifier:0, chance:1.0}], obtain{drop, craft, recipe?}, lore[<=4 lines <=90 chars]}`. Spears take `ef: {one_hand:{...}, two_hand:{...}}`. `resolution`, `rings`, `spikes` and `hold` are optional and only matter for the staff shapes (below).
+`{id, display_name, category, rarity (common|uncommon|rare|epic; rare), damage (1-40), attack_speed (-4.0..0.0), durability (100-5000), ef{impact, armor_negation, max_strikes, damage_bonus?, speed_bonus?}, appearance{blade, guard, grip, accent, gem, glow, motif plain|fuller|runes|serrated, shape, guard_shape, pommel_shape, length 0.8-1.15, width 0.7-1.4, resolution 32|64, rings 0-4, spikes 2-5, frame 0.7-1.3}, visual_scale 0.4-1.5 (staff shapes 0.25-1.5), hold{lean, side, grip, facing, offset} (staff shapes only), effects[{on:"hit", effect, duration:100, amplifier:0, chance:1.0}], obtain{drop, craft, recipe?}, lore[<=4 lines <=90 chars]}`. Spears take `ef: {one_hand:{...}, two_hand:{...}}`. `resolution`, `rings`, `spikes`, `frame` and `hold` are optional and only matter for the staff shapes (below).
 
 Appearance defaults: blade `#cfd6e4`, guard = boss accent, grip `#5a3a22`, accent = boss accent, gem = boss eyes, glow false, motif fuller, the category's default shape, guard `bar`, pommel `disc`, length/width 1.0.
 
@@ -18,22 +18,24 @@ Appearance defaults: blade `#cfd6e4`, guard = boss accent, grip `#5a3a22`, accen
 | tachi | curved, straight, hooked |
 | dagger | straight, leaf, wavy, serrated, hooked |
 | axe (head) | broad, crescent, double, cleaver |
-| spear (head) | leaf, trident, hooked, broad, crystal_staff, orb_staff |
+| spear (head) | leaf, trident, hooked, broad, crystal_staff, orb_staff, diamond_staff |
 
 `guard_shape`: bar, winged, curved, ring, ornate, none (axe/spear: only `none` changes anything). `pommel_shape`: disc, gem, spike, ring, none. `length`/`width` stretch the blade. Match the weapon to the boss: a wavy flamberge for a fiend, a winged guard with a gem pommel for a holy king, a cleaver greatsword for a brute. Read `<boss>_weapons.png` before approving.
 
-## Staffs (`category: "spear"`, `shape: "crystal_staff" | "orb_staff"`)
+## Staffs (`category: "spear"`, `shape: "crystal_staff" | "orb_staff" | "diamond_staff"`)
 
-A mage staff uses the spear category on purpose: it gets EF's spear moveset, `epicfight:spear` capability and the `epicfight:item/spear` parent model (gui, ground and frame transforms). Only the sprite differs, and the generator writes its own held transform (see "Held placement") because Epic Fight's spear transform would lay a staff sideways across the body. Colours reuse the normal keys: `blade` = crystal, `guard` = gold, `grip` = shaft bands (crystal_staff) or wood (orb_staff), `gem` = orb, `accent` = glow halo (`glow: true`). `pommel_shape`/`guard_shape`/`motif` do not apply.
+A mage staff uses the spear category on purpose: it gets EF's spear moveset, `epicfight:spear` capability and the `epicfight:item/spear` parent model (gui, ground and frame transforms). Only the sprite differs, and the generator writes its own held transform (see "Held placement") because Epic Fight's spear transform would lay a staff sideways across the body. Colours reuse the normal keys: `blade` = crystal, `guard` = gold, `grip` = shaft bands (crystal_staff, diamond_staff) or wood (orb_staff), `gem` = orb, `accent` = glow halo (`glow: true`). `pommel_shape`/`guard_shape`/`motif` do not apply.
 
 | Shape | Look (foot to tip) |
 |---|---|
 | `crystal_staff` | crystal point, gold foot band, shaft in alternating `grip` blue and aqua bands over pale crystal, gold collar, flared crystal, then a see-through gold ring with silver arcs and bars around a faceted glowing `gem` orb (bright core, highlight pixel, gold struts), and a stepped crystal spire on top |
 | `orb_staff` | crystal ferrule, gold band, plain `grip` shaft, gold collar, orb in a gold ring, a fan of crystal shards on top |
+| `diamond_staff` | gold ferrule, shaft in alternating pale, aqua and `grip` bands, gold collar, then an open **rhombus frame wider than long**: two light `blade` crystal bars on the near side that meet at the collar, two thicker gold bars bowed outward on the far side, a faceted bright `gem` orb held by a thin crystal spine, and a small `gem` bead on the far corner (details below) |
 
-- `spikes` (2-5, default 3): spire steps of `crystal_staff`, shards in the fan of `orb_staff`.
+- `spikes` (2-5, default 3): spire steps of `crystal_staff`, shards in the fan of `orb_staff`; no effect on `diamond_staff`.
 - `rings` (0-4, default 2): gold rings on the shaft. 0 = none (collar and foot band turn silver), 1 = collar, 2 = collar + foot band (the sheet look), 3 and 4 add one or two thin rings mid-shaft.
-- `length` stretches the shaft and spire, `width` slims or widens every part.
+- `length` stretches the shaft and spire, `width` slims or widens every part. The `diamond_staff` head keeps its size when `length` changes (only the shaft stretches), so a short `length` makes the head a bigger share of the staff.
+- `frame` (0.7-1.3, default 1.0): size of the `diamond_staff` rhombus head, bars and orb together; other shapes ignore it (an out-of-range value is rejected for every shape: `out_of_range` at `/appearance/frame`).
 - `resolution` (32 or 64): staffs default to **64**, because the orb, ring and spire are too fine for 32 px (a staff at 32 is still valid and complete, just coarser). Any other shape only offers its category's native size; asking for another value is a validation error (`unknown_value` at `/appearance/resolution`).
 
 Resolution never changes the in-game size: `epicfight:item/spear` and the Forge `separate_transforms` perspectives parent vanilla `item/generated`, which maps the texture onto a fixed 16-unit square whatever its pixel size (EF itself ships a 32 px spear texture next to a 16 px `_gui` one). A 64 px staff gets a 32 px `_gui` texture, so the pair keeps the 2:1 ratio of the other long weapons. Held size is controlled by `visual_scale` only.
@@ -45,6 +47,19 @@ Example (the Celestial Mage staff):
  "appearance": {"shape": "crystal_staff", "blade": "#bfe9ff", "guard": "#f0c850", "grip": "#4aa0e8",
                 "accent": "#7fd6ff", "gem": "#2ea8ff", "glow": true, "resolution": 64, "rings": 2, "spikes": 3}}
 ```
+
+### `diamond_staff`: the Nightingale reference staff
+
+Drawn from the Nightingale reference images (`hero_front`, `hero_3q`, the anatomical back view): a short sceptre, **not** a tall staff. Measured in those images in model blocks (the mesh is 1.83 blocks tall, its head cube 0.26): the whole staff 0.5-0.65 blocks long (about 0.3 body heights), the head about 0.23 along the shaft and 0.29 across it (wider than long), the shaft 1-2 art pixels thick, light blue with a gold C-shaped collar at the head, and the hand holding the shaft near its butt (23-27 % of the length from the butt). The frame's near bars are light blue crystal, its far bars gold arcs, with a cyan orb inside and a small cyan bead poking out of the far corner. The 64 px sprite reproduces that on the 45 degree axis (outline and optional halo as for the other shapes); the head (near corner to bead) is 43 % of the staff at `length` 0.8, `frame` 0.9. Defaults specific to this shape: `visual_scale` **0.3** (0.54 blocks at entity scale 1, `sprites.staff_default`) and the hand grip at **0.26** of the length.
+
+```json
+{"id": "lullaby_staff", "category": "spear", "rarity": "epic", "visual_scale": 0.3,
+ "appearance": {"shape": "diamond_staff", "blade": "#86bdf0", "guard": "#e0b948", "grip": "#6fb4e6",
+                "accent": "#7fe0ff", "gem": "#4fdcf5", "glow": true, "resolution": 64, "rings": 3,
+                "length": 0.8, "frame": 0.9}}
+```
+
+What still differs from the reference: the sprite's frame is a flat rhombus drawn at 64 px, while the reference head is a voxel-built 3D crystal with glowing translucent edges; the reference gold arcs stop short of the far corner (here the two gold bars meet at the bead); the shaft is banded teal and blue where the reference is a plain light blue slab.
 
 ## Held placement and size
 
@@ -62,7 +77,7 @@ Epic Fight does not use the vanilla hand placement. For a mob, and for a player 
 
 ### Staffs: the generated held transform
 
-For staff shapes (`spear` + `crystal_staff` / `orb_staff`) the generator replaces the parent's `thirdperson_righthand` entry with one it solves (`holdpose.staff_display`): the sprite axis points up, the hand grips the shaft, the sprite face looks forward. The solution is exact for the hold_spear pose (the animation a mob with a spear or staff plays; its mobpatch uses `epicfight:biped/living/hold_spear` for idle) and stays near upright in the other poses:
+For staff shapes (`spear` + `crystal_staff` / `orb_staff` / `diamond_staff`) the generator replaces the parent's `thirdperson_righthand` entry with one it solves (`holdpose.staff_display`): the sprite axis points up, the hand grips the shaft, the sprite face looks forward. The solution is exact for the hold_spear pose (the animation a mob with a spear or staff plays; its mobpatch uses `epicfight:biped/living/hold_spear` for idle) and stays near upright in the other poses:
 
 | Pose | Played when | Staff axis from vertical (default `lean` 10) |
 |---|---|---|
@@ -73,16 +88,16 @@ For staff shapes (`spear` + `crystal_staff` / `orb_staff`) the generator replace
 | walk | plain walk | 20.0 |
 | run_spear | running or chasing | 62.5 (the staff is carried forward) |
 
-The staff is `visual_scale` times the stock biped's height long (1.8 blocks at entity scale 1, so a boss with `scale` 1.386 holds a 2.5 block staff, exactly as tall as its body). `visual_scale` 1.0 is the default and the automatic shrink for large bosses does not apply to staffs. The gui, ground and frame perspectives keep the parent's transform (an upright diagonal sprite in the inventory); the left-hand and first-person entries are the parent's scaled by `visual_scale` (not solved: see "What is verified").
+The staff is `visual_scale` times the stock biped's height long (1.8 blocks at entity scale 1, so a boss with `scale` 1.386 holds a 2.5 block staff, exactly as tall as its body). `visual_scale` defaults to 1.0 (0.3 for `diamond_staff`) and the automatic shrink for large bosses does not apply to staffs; staffs accept 0.25-1.5, other weapons 0.4-1.5. The length is relative to the stock biped (1.8), so on a mesh that is not stock height the staff is not `visual_scale` body heights: the Nightingale mesh is 1.83 blocks (almost stock) and its entity scale only multiplies everything alike. The gui, ground and frame perspectives keep the parent's transform (an upright diagonal sprite in the inventory); the left-hand and first-person entries are the parent's scaled by `visual_scale` (not solved: see "What is verified").
 
 `hold` knobs (all optional, staff shapes only; any other weapon with a `hold` is rejected with `hold_not_applicable`):
 
 | Key | Default | Meaning |
 |---|---|---|
 | `lean` | 10 | degrees the top of the staff leans forward (-45..60) |
-| `side` | 0 | degrees it leans outward, away from the body (-45..45) |
-| `grip` | 0.40 | where the hand holds the staff, as a fraction of its length from the foot (0.1..0.8); 0.40 is the shaft just below the collar |
-| `facing` | `front` | `front`: the sprite face looks forward (the weapon sheet's "front weapon" reads from the front); `side`: it looks to the wielder's right |
+| `side` | 0 | degrees it leans outward, away from the body (-90..90; 90 points it along the wielder's left-right axis, horizontal) |
+| `grip` | 0.40 (`diamond_staff` 0.26) | where the hand holds the staff, as a fraction of its length from the foot (0.1..0.8); 0.40 is the shaft just below the collar |
+| `facing` | `front` | `front`: the sprite face looks forward (the weapon sheet's "front weapon" reads from the front); `side`: it looks to the wielder's right (rejected with `out_of_range` at `/hold/facing` when the axis points along left-right, `side` near 90) |
 | `offset` | `[0,0,0]` | shift of the staff in blocks inside the hand frame, each within +-1 |
 
 Tuning loop: `bossforge render-test --project DIR --boss ID`, read `*_hand-front`, `*_hand-side`, `*_hand-3q` and the `player-*` shots, change `lean`/`side`/`grip`/`offset`, regenerate (`add-boss`) and repeat. `bossforge qa` fails with `qa_staff_lies_flat` when a project still carries a staff model generated before this transform existed (or hand-edited so the staff is not where the weapon's `hold` asks).
@@ -95,6 +110,21 @@ Example with every knob:
  "hold": {"lean": 8, "side": 4, "grip": 0.42, "facing": "front", "offset": [0, 0, 0]}}
 ```
 
+The Nightingale references carry the staff nearly **horizontal** at hip height, the head pointing away from the body (about 8 degrees above the horizontal, in the character's left hand; Epic Fight's main hand is the right one, so the carry is mirrored). The default hold stands it upright instead. This `hold` reproduces the carry (hold_spear pose, entity scale 1, body space x right / y up / z back, `diamond_staff` `length` 0.8, `frame` 0.9, `visual_scale` 0.3):
+
+```json
+"hold": {"lean": 0, "side": 82, "offset": [-0.4, 0, 0.14]}
+```
+
+| Pose | Default hold (upright, lean 10): orb | Carry hold: orb, axis |
+|---|---|---|
+| hold_spear (boss idle) | (0.38, 1.07, +0.37): right of the hip, chest-ish height, **behind** the body plane (the hold_spear hand is 0.41 behind) | (0.64, 0.88, -0.01), axis (0.99, 0.14, 0.00): beside the hip, 0.54 blocks long |
+| idle (player) | (0.38, 1.09, +0.13) | (0.20, 1.04, -0.33), axis (0.53, 0.36, -0.77): in front, pointing forward and outward |
+| bind | (0.39, 1.08, -0.06) | (0.01, 1.03, -0.37), axis (0.14, 0.28, -0.95): pointing forward |
+| walk_spear | (0.51, 1.07, +0.13) | (0.57, 0.84, -0.30), axis (0.90, 0.06, -0.44) |
+
+The reference orb sits at about (0.58, 0.89) from the body centre (mirrored), the hand at x 0.36, hip height 0.88.
+
 ### Other weapons: size only
 
 Swords, axes, daggers, longswords, greatswords, tachi and normal spear heads keep Epic Fight's own display for their parent model (it is tuned for the diagonal sprite in that category's hold animation). `visual_scale` (0.4-1.5) multiplies the X/Y scale of the third- and first-person hand entries only (gui, ground and frame unchanged) and the translation is moved so the grip stays in the hand. If omitted, the boss's `main_weapon` is shrunk automatically when the mesh scale is above 1.2 (`clamp(1/sqrt(scale), 0.7, 1.0)`), because Epic Fight's 1.5x-1.7x parent scales and the entity scale together make big bosses hold very large blades. The same item model is used when a player holds it.
@@ -103,7 +133,7 @@ Swords, axes, daggers, longswords, greatswords, tachi and normal spear heads kee
 
 With the Nightingale boss (scale 1.386) and the crystal staff in a Forge 1.20.1 dev client (`bossforge render-test`; screenshots read): the boss holds the staff upright in its right hand from the front, the side, the back and three-quarter views; the staff rises from about foot level to head height with its orb at chest height (2.5 blocks long for the 1.386-scale boss); a player in Epic Fight mode (standing, third person front and back) holds it upright at the right hip; in vanilla mode it is carried diagonally in front of the leg; the hotbar icon (gui) is the unchanged diagonal sprite; the pose matrices Epic Fight reported agree with `hold-poses.json` to 0.005 blocks. Projecting the predicted staff axis into the hand-front screenshot (camera from the logged position and angles) lands within about 0.1 block of the sprite. King Arthur's longsword (parent model unchanged) renders as Epic Fight's own longsword does, for the boss and a player.
 
-Not verified: the off hand (left-hand entries are the parent's, scaled), first person (the parent's transform, scaled), the ground and item-frame perspectives, attack and run animations (the staff follows the hand, in run_spear it points forward), and bosses whose mesh does not follow the stock biped proportions.
+Not verified: the off hand (left-hand entries are the parent's, scaled), first person (the parent's transform, scaled), the ground and item-frame perspectives, attack and run animations (the staff follows the hand, in run_spear it points forward), and bosses whose mesh does not follow the stock biped proportions. The `diamond_staff` sprite and its two holds were checked with the pure-Python solver and sprite renders only (numbers above from `holdpose.place`, unit tests in `tests/test_weapon.py`); no dev client has rendered them yet, so read the `render-test` hand shots before trusting the carry hold's `offset`.
 
 ## Categories (`bossforge list weapon-categories`)
 

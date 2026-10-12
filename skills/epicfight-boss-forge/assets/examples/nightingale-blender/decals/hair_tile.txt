@@ -1,0 +1,13 @@
+; Hair strands, an 8 x 8 tile repeated over every hair face: dark gaps, base chestnut, warm light locks, one highlight column.
+@a #8e583a
+@d #6e4029
+@h #a86f43
+@l #c28d5c
+daahadaa
+daahadaa
+dahladah
+aahlaaah
+dahladaa
+daahaada
+daahadaa
+aaaaadaa

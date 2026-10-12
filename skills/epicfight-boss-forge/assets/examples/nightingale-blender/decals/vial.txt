@@ -1,0 +1,6 @@
+; A tiny potion vial on a pouch (2 x 4 texels): brown cork row, then the liquid in the vial colour (# = feature color).
+@k #7a5230
+kk
+##
+##
+##
